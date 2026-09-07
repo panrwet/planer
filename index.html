@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Planer</title>
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Planer">
+<meta name="theme-color" content="#fcfcfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111113" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Habits verfolgen und Todos verwalten – alles lokal auf dem Gerät.">
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- HABITS -->
+  <section class="screen" id="screen-habits" data-tab="habits">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <h1 class="title">Habits</h1>
+        <button class="icon-btn primary" id="habit-add" type="button" aria-label="Neues Habit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <p class="subtitle" id="habits-date"></p>
+    </header>
+    <div class="scroll" id="habits-scroll">
+      <div class="list" id="habit-list"></div>
+      <div class="done-section" id="habits-done-section" hidden>
+        <button class="section-toggle" id="habits-done-toggle" type="button" aria-expanded="false">
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          <span id="habits-done-label">Erledigt</span>
+        </button>
+        <div class="list" id="habit-list-done" hidden></div>
+      </div>
+      <div class="empty" id="habits-empty" hidden>
+        <div class="empty-icon">✓</div>
+        <h2>Noch keine Habits</h2>
+        <p>Tippe oben rechts auf <strong>+</strong>, um dein erstes Habit anzulegen.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- LISTEN -->
+  <section class="screen" id="screen-lists" data-tab="todos">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <h1 class="title">Todos</h1>
+        <button class="icon-btn primary" id="list-add" type="button" aria-label="Neue Liste">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <p class="subtitle" id="lists-subtitle"></p>
+    </header>
+    <div class="scroll">
+      <div class="list" id="list-list"></div>
+      <div class="empty" id="lists-empty" hidden>
+        <div class="empty-icon">☰</div>
+        <h2>Noch keine Listen</h2>
+        <p>Lege zuerst eine Liste an, zum Beispiel <em>Einkaufen</em> oder <em>Arbeit</em>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TODOS EINER LISTE -->
+  <section class="screen" id="screen-todos" data-tab="todos">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <button class="back-btn" id="todos-back" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          <span>Listen</span>
+        </button>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="todos-edit-list" type="button" aria-label="Liste bearbeiten">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z"/></svg>
+          </button>
+          <button class="icon-btn primary" id="todo-add" type="button" aria-label="Neues Todo">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+      </div>
+      <h1 class="title" id="todos-title"></h1>
+      <p class="subtitle" id="todos-subtitle"></p>
+    </header>
+    <div class="scroll" id="todos-scroll">
+      <div class="list drag-host" id="todo-list"></div>
+      <div class="done-section" id="todos-done-section" hidden>
+        <button class="section-toggle" id="todos-done-toggle" type="button" aria-expanded="false">
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          <span id="todos-done-label">Erledigt</span>
+        </button>
+        <div class="list" id="todo-list-done" hidden></div>
+      </div>
+      <div class="empty" id="todos-empty" hidden>
+        <div class="empty-icon">✓</div>
+        <h2>Alles erledigt</h2>
+        <p>Tippe oben rechts auf <strong>+</strong> für eine neue Aufgabe.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- HABIT DETAIL -->
+  <section class="screen" id="screen-detail" data-tab="habits">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <button class="back-btn" id="detail-back" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          <span>Habits</span>
+        </button>
+        <button class="icon-btn" id="detail-edit" type="button" aria-label="Habit bearbeiten">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="scroll" id="detail-scroll"></div>
+  </section>
+
+  <!-- EINSTELLUNGEN -->
+  <section class="screen" id="screen-settings" data-tab="settings">
+    <header class="topbar">
+      <div class="topbar-inner"><h1 class="title">Einstellungen</h1></div>
+    </header>
+    <div class="scroll" id="settings-scroll"></div>
+  </section>
+
+  <nav class="tabbar" id="tabbar" aria-label="Hauptbereiche">
+    <button class="tab" data-goto="habits" type="button" aria-current="page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+      <span>Habits</span>
+    </button>
+    <button class="tab" data-goto="todos" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
+      <span>Todos</span>
+    </button>
+    <button class="tab" data-goto="settings" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 00.32 1.77l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.6 1.6 0 00-1.77-.32 1.6 1.6 0 00-.97 1.47V21a2 2 0 11-4 0v-.11a1.6 1.6 0 00-1.05-1.46 1.6 1.6 0 00-1.77.32l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.6 1.6 0 00.32-1.77 1.6 1.6 0 00-1.47-.97H3a2 2 0 110-4h.11A1.6 1.6 0 004.57 9a1.6 1.6 0 00-.32-1.77l-.06-.06a2 2 0 112.83-2.83l.06.06a1.6 1.6 0 001.77.32H9a1.6 1.6 0 00.97-1.47V3a2 2 0 114 0v.11a1.6 1.6 0 00.97 1.47 1.6 1.6 0 001.77-.32l.06-.06a2 2 0 112.83 2.83l-.06.06a1.6 1.6 0 00-.32 1.77V9a1.6 1.6 0 001.47.97H21a2 2 0 110 4h-.11a1.6 1.6 0 00-1.47.97z"/></svg>
+      <span>Mehr</span>
+    </button>
+  </nav>
+</div>
+
+<div class="sheet-host" id="sheet-host" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
