@@ -1,13 +1,21 @@
-/* Habits-Tab: Liste, Abhaken, Anlegen und Bearbeiten. */
+/* Habits-Tab: nach Häufigkeit gruppierte Liste, Abhaken, Anlegen und Bearbeiten. */
 
 import { $, el, num, plural, haptic, WEEKDAYS_SHORT, formatLongDate } from './util.js';
 import * as S from './store.js';
+import { attachSortable, isDragging } from './drag.js';
 import {
   toast, openSheet, confirmSheet, field, textInput, emojiPicker, colorPicker,
-  stepper, chipGroup, checkButton, chevronButton,
+  stepper, chipGroup, checkButton, sectionToggle,
 } from './ui.js';
 
 const EMOJI_SUGGESTIONS = ['💧', '🏃', '📖', '🧘', '💪', '🥗', '😴', '✍️', '🎯', '🧹', '💊', '🌱', '🎸', '🧠', '☀️', '⭐️'];
+
+/* Reihenfolge der Gruppen von oben nach unten. */
+const GROUPS = [
+  { id: 'daily', label: 'Täglich',              match: (h) => h.sched === 'daily' },
+  { id: 'days',  label: 'An bestimmten Tagen',  match: (h) => h.sched === 'days' },
+  { id: 'week',  label: 'Pro Woche',            match: (h) => h.sched === 'week' },
+];
 
 let onOpenDetail = () => {};
 export function bindDetailOpener(fn) { onOpenDetail = fn; }
@@ -15,38 +23,68 @@ export function bindDetailOpener(fn) { onOpenDetail = fn; }
 /* ---------- Liste ---------- */
 
 export function renderHabits() {
-  const open = $('#habit-list');
-  const doneList = $('#habit-list-done');
-  const section = $('#habits-done-section');
+  const host = $('#habit-groups');
   const key = S.today();
   const set = S.settings();
   const all = S.habits();
+  const dim = set.doneHabits === 'dim';
 
   $('#habits-date').textContent = formatLongDate(key);
-
-  const visible = all.filter(h => S.showsOn(h, key));
-  const openItems = visible.filter(h => !S.isDoneOn(h, key));
-  const doneItems = visible.filter(h => S.isDoneOn(h, key));
-  // Wochenziel erfüllt: heute nicht mehr fällig, gehört aber ins "Erledigt".
-  const weekDone = all.filter(h => !S.showsOn(h, key) && S.isActiveOn(h, key));
-
-  const dim = set.doneHabits === 'dim';
-  open.replaceChildren(...(dim ? visible : openItems).map(h => habitRow(h, key, dim)));
-
-  const parked = dim ? weekDone : [...doneItems, ...weekDone];
-  doneList.replaceChildren(...parked.map(h => habitRow(h, key, true)));
-  section.hidden = parked.length === 0;
-  $('#habits-done-label').textContent = `Erledigt · ${parked.length}`;
-
   $('#habits-empty').hidden = all.length > 0;
-  if (all.length && !visible.length && !parked.length) {
-    // Alles für heute außer Plan (z. B. reines Wochenend-Habit an einem Montag)
-    open.replaceChildren(el('div', { class: 'empty' }, [
+
+  // Heute fällig, und davon getrennt das, was schon erledigt ist.
+  const shown = all.filter((h) => S.showsOn(h, key));
+  const parked = dim ? [] : shown.filter((h) => S.isDoneOn(h, key));
+  const weekDone = all.filter((h) => !S.showsOn(h, key) && S.isActiveOn(h, key));
+  const inGroups = dim ? shown : shown.filter((h) => !S.isDoneOn(h, key));
+
+  const sections = [];
+  for (const g of GROUPS) {
+    const items = inGroups.filter(g.match);
+    if (items.length) sections.push(groupSection(g.id, g.label, items, key, dim, true));
+  }
+
+  const done = [...parked, ...weekDone];
+  if (done.length) sections.push(groupSection('done', 'Erledigt', done, key, true, false));
+
+  if (all.length && !sections.length) {
+    sections.push(el('div', { class: 'empty' }, [
       el('div', { class: 'empty-icon', text: '🌙' }),
       el('h2', { text: 'Heute nichts geplant' }),
       el('p', { text: 'Für diesen Wochentag ist kein Habit eingeplant.' }),
     ]));
   }
+  host.replaceChildren(...sections);
+}
+
+/** Eine aufklappbare Gruppe. `sortable` erlaubt das Umsortieren darin. */
+function groupSection(id, label, items, key, dimDone, sortable) {
+  const open = S.groupOpen(id);
+  const list = el('div', { class: 'list', dataset: { group: id } });
+  list.hidden = !open;
+
+  const toggle = sectionToggle({
+    label, count: items.length, open,
+    onToggle: (next) => { list.hidden = !next; S.setGroupOpen(id, next); },
+  });
+
+  for (const h of items) {
+    const row = habitRow(h, key, dimDone);
+    list.append(row);
+    if (sortable) {
+      attachSortable(row, row.firstElementChild, {
+        host: list,
+        scroll: $('#habits-scroll'),
+        ignore: '.check',
+        onDrop: (order) => {
+          S.reorderHabits(order.map((o) => o.id));
+          renderHabits();
+        },
+      });
+    }
+  }
+
+  return el('div', { class: 'group-section' }, [toggle, list]);
 }
 
 function habitRow(h, key, dimIfDone) {
@@ -58,41 +96,40 @@ function habitRow(h, key, dimIfDone) {
   const tint = isDark ? c.dark : c.light;
 
   const row = el('div', {
-    class: `row tappable${done || outOfPlan ? ' is-done' : ''}${dimIfDone ? ' dimmed' : ''}`,
+    class: `row tinted tappable${done || outOfPlan ? ' is-done' : ''}${dimIfDone ? ' dimmed' : ''}`,
     style: S.tintStyle(h.color, isDark),
-    dataset: { id: h.id },
-  });
-
-  row.append(
+  }, [
     el('div', { class: 'row-emoji', text: h.emoji || '•' }),
     el('div', { class: 'row-body' }, [
       el('div', { class: 'row-title', text: h.name }),
       el('div', { class: 'row-meta' }, metaParts(h, key, value, outOfPlan)),
     ]),
-    el('div', { class: 'row-actions' }, [
-      chevronButton(() => onOpenDetail(h.id), `Details zu ${h.name}`),
-    ]),
-  );
+    // Abhaken sitzt rechts – dort liegt der Daumen.
+    checkButton({
+      value, target: h.target, color: tint,
+      label: done ? `${h.name} zurücksetzen` : `${h.name} abhaken`,
+      onTap: () => { S.bump(h.id, key); renderHabits(); },
+      onHold: () => { S.unbump(h.id, key); renderHabits(); },
+    }),
+  ]);
 
-  // Abhak-Button vorn
-  row.prepend(checkButton({
-    value, target: h.target, color: tint,
-    label: done ? `${h.name} zurücksetzen` : `${h.name} abhaken`,
-    onTap: () => { S.bump(h.id, key); renderHabits(); },
-    onHold: () => { S.unbump(h.id, key); renderHabits(); },
-  }));
+  // Ein Tipp auf die Zeile öffnet die Details – außer der Tipp beendet ein Ziehen.
+  row.addEventListener('click', (e) => {
+    if (isDragging() || e.target.closest('.check')) return;
+    onOpenDetail(h.id);
+  });
 
-  row.addEventListener('click', () => onOpenDetail(h.id));
-  return row;
+  return el('div', { class: 'sort-wrap', dataset: { id: h.id } }, [row]);
 }
 
 /** Wochentage kurz: alle sieben heißen schlicht "Jeden Tag". */
 function dayList(days = []) {
   if (days.length >= 7) return 'Jeden Tag';
-  return days.slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(d => WEEKDAYS_SHORT[d]).join(' ');
+  return days.slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => WEEKDAYS_SHORT[d]).join(' ');
 }
 
 function metaParts(h, key, value, outOfPlan) {
+
   const parts = [];
   const w = S.unitWords(h);
 

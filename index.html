@@ -34,14 +34,7 @@
       <p class="subtitle" id="habits-date"></p>
     </header>
     <div class="scroll" id="habits-scroll">
-      <div class="list" id="habit-list"></div>
-      <div class="done-section" id="habits-done-section" hidden>
-        <button class="section-toggle" id="habits-done-toggle" type="button" aria-expanded="false">
-          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-          <span id="habits-done-label">Erledigt</span>
-        </button>
-        <div class="list" id="habit-list-done" hidden></div>
-      </div>
+      <div id="habit-groups"></div>
       <div class="empty" id="habits-empty" hidden>
         <div class="empty-icon">✓</div>
         <h2>Noch keine Habits</h2>
@@ -50,60 +43,24 @@
     </div>
   </section>
 
-  <!-- LISTEN -->
-  <section class="screen" id="screen-lists" data-tab="todos">
-    <header class="topbar">
-      <div class="topbar-inner">
-        <h1 class="title">Todos</h1>
-        <button class="icon-btn primary" id="list-add" type="button" aria-label="Neue Liste">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
-      </div>
-      <p class="subtitle" id="lists-subtitle"></p>
-    </header>
-    <div class="scroll">
-      <div class="list" id="list-list"></div>
-      <div class="empty" id="lists-empty" hidden>
-        <div class="empty-icon">☰</div>
-        <h2>Noch keine Listen</h2>
-        <p>Lege zuerst eine Liste an, zum Beispiel <em>Einkaufen</em> oder <em>Arbeit</em>.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- TODOS EINER LISTE -->
+  <!-- TODOS -->
   <section class="screen" id="screen-todos" data-tab="todos">
     <header class="topbar">
       <div class="topbar-inner">
-        <button class="back-btn" id="todos-back" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
-          <span>Listen</span>
+        <h1 class="title" id="todos-title">Todos</h1>
+        <button class="icon-btn primary" id="todo-add" type="button" aria-label="Neue Aufgabe">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         </button>
-        <div class="topbar-actions">
-          <button class="icon-btn" id="todos-edit-list" type="button" aria-label="Liste bearbeiten">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z"/></svg>
-          </button>
-          <button class="icon-btn primary" id="todo-add" type="button" aria-label="Neues Todo">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
-        </div>
       </div>
-      <h1 class="title" id="todos-title"></h1>
       <p class="subtitle" id="todos-subtitle"></p>
     </header>
     <div class="scroll" id="todos-scroll">
-      <div class="list drag-host" id="todo-list"></div>
-      <div class="done-section" id="todos-done-section" hidden>
-        <button class="section-toggle" id="todos-done-toggle" type="button" aria-expanded="false">
-          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-          <span id="todos-done-label">Erledigt</span>
-        </button>
-        <div class="list" id="todo-list-done" hidden></div>
-      </div>
+      <div class="list" id="todo-list"></div>
+      <div id="todos-done"></div>
       <div class="empty" id="todos-empty" hidden>
         <div class="empty-icon">✓</div>
-        <h2>Alles erledigt</h2>
-        <p>Tippe oben rechts auf <strong>+</strong> für eine neue Aufgabe.</p>
+        <h2>Nichts offen</h2>
+        <p id="todos-empty-text">Tippe oben rechts auf + für eine neue Aufgabe.</p>
       </div>
     </div>
   </section>
@@ -132,6 +89,13 @@
     <div class="scroll" id="settings-scroll"></div>
   </section>
 
+  <nav class="listbar" id="listbar" aria-label="Listen" hidden>
+    <div class="list-tabs" id="list-tabs"></div>
+    <button class="listbar-more" id="list-menu" type="button" aria-label="Listen und Einstellungen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>
+    </button>
+  </nav>
+
   <nav class="tabbar" id="tabbar" aria-label="Hauptbereiche">
     <button class="tab" data-goto="habits" type="button" aria-current="page">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
@@ -148,6 +112,7 @@
   </nav>
 </div>
 
+<div class="dropup-host" id="dropup-host" hidden></div>
 <div class="sheet-host" id="sheet-host" hidden></div>
 <div class="toast" id="toast" hidden></div>
 

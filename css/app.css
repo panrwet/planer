@@ -35,6 +35,7 @@
   --safe-l: env(safe-area-inset-left, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
   --tabbar-h: 54px;
+  --listbar-h: 46px;
 }
 
 :root[data-size="small"]  { --row-h: 50px; --row-pad: 9px;  --row-title: 15px; --check-size: 28px; --emoji-size: 19px; }
@@ -229,12 +230,28 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   align-items: center;
   gap: 12px;
   min-height: var(--row-h);
-  padding: var(--row-pad) 12px var(--row-pad) 12px;
+  padding: var(--row-pad) 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-1);
   transition: opacity .2s, transform .12s, background .15s;
+}
+
+/* Die eigene Farbe rahmt die Zeile ein und tönt sie leicht – so tritt jedes
+   Habit bzw. jede Aufgabe als eigenes Objekt hervor. */
+.row.tinted {
+  border-color: color-mix(in oklab, var(--tint) 46%, var(--border));
+  background: color-mix(in oklab, var(--tint) 5%, var(--surface));
+}
+.row.tinted::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 12px; bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--tint);
+  opacity: .85;
 }
 .row.tappable:active { background: var(--surface-2); }
 
@@ -251,6 +268,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   line-height: 1;
   border-radius: 10px;
   background: var(--tint-soft, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tint, var(--border)) 22%, transparent);
 }
 .row-body { flex: 1; min-width: 0; }
 .row-title {
@@ -287,16 +305,14 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.row-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 
-.chev-btn {
-  width: 30px; height: 30px;
-  display: grid; place-items: center;
-  border-radius: 50%;
-  color: var(--text-3);
+.grip {
+  flex: none;
+  width: 22px; height: 22px;
+  background:
+    radial-gradient(circle, var(--text-3) 1.1px, transparent 1.2px) 0 4px / 11px 6px repeat;
+  opacity: .6;
 }
-.chev-btn svg { width: 19px; height: 19px; }
-.chev-btn:active { background: var(--surface-2); }
 
 /* ---- Abhak-Button mit Fortschrittsring ---- */
 .check {
@@ -349,17 +365,31 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 /* ==========================================================================
    Abschnitt "Erledigt"
    ========================================================================== */
-.done-section { margin-top: 18px; }
+.group-section + .group-section { margin-top: 16px; }
+#todos-done .group-section { margin-top: 18px; }
+
 .section-toggle {
-  display: flex; align-items: center; gap: 4px;
-  padding: 6px 4px;
-  color: var(--text-3);
+  display: flex; align-items: center; gap: 5px;
+  width: 100%;
+  padding: 7px 4px;
+  color: var(--text-2);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: .01em;
 }
-.section-toggle .chev { width: 16px; height: 16px; transition: transform .18s; }
+.section-toggle .chev { flex: none; width: 16px; height: 16px; transition: transform .18s; }
 .section-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
-.done-section .list { margin-top: 6px; }
+.section-count {
+  margin-left: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.section-toggle:active { opacity: .6; }
+.group-section .list { margin-top: 7px; }
 
 /* ==========================================================================
    Leerzustand
@@ -380,6 +410,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 /* ==========================================================================
    Todos: Verschachtelung & Ziehen
    ========================================================================== */
+.sort-wrap { position: relative; }
 .todo-wrap { position: relative; }
 .todo-wrap[data-depth="1"] { margin-left: 26px; }
 .todo-wrap[data-depth="2"] { margin-left: 52px; }
@@ -391,11 +422,6 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   width: 7px; height: 1px;
   background: var(--border-strong);
   opacity: .7;
-}
-
-.subcount {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-variant-numeric: tabular-nums;
 }
 
 .row.dragging {
@@ -428,7 +454,7 @@ body.is-dragging .scroll { overflow: hidden; }
 .drag-hint {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--safe-b) + var(--tabbar-h) + 16px);
+  bottom: calc(var(--safe-b) + var(--tabbar-h) + var(--listbar-h) + 16px);
   transform: translateX(-50%);
   z-index: 61;
   padding: 7px 14px;
@@ -534,6 +560,149 @@ body.is-dragging .scroll { overflow: hidden; }
   margin-top: 7px;
   font-size: 11px; color: var(--text-3);
 }
+
+/* ==========================================================================
+   Listen-Leiste (nur im Todos-Bereich, direkt über der Tab-Leiste)
+   ========================================================================== */
+.listbar {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(var(--tabbar-h) + var(--safe-b));
+  z-index: 29;
+  display: flex;
+  align-items: stretch;
+  height: var(--listbar-h);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--border);
+}
+
+.list-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 calc(var(--safe-l) + 10px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.list-tabs::-webkit-scrollbar { display: none; }
+
+.list-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 46vw;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 550;
+}
+.list-tab.active {
+  background: color-mix(in oklab, var(--tint) 15%, var(--surface));
+  border-color: color-mix(in oklab, var(--tint) 55%, transparent);
+  color: var(--text);
+}
+.list-tab:active { transform: scale(.95); }
+.list-tab-emoji { font-size: 14px; line-height: 1; }
+.list-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-tab-badge {
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--tint);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.listbar-more {
+  flex: none;
+  width: 46px;
+  display: grid;
+  place-items: center;
+  padding-right: var(--safe-r);
+  color: var(--text-2);
+  border-left: 1px solid var(--border);
+}
+.listbar-more svg { width: 21px; height: 21px; stroke-width: 2.4; }
+.listbar-more:active { background: var(--surface-2); }
+
+/* Im Todos-Bereich braucht der Inhalt unten mehr Luft. */
+#screen-todos .scroll {
+  padding-bottom: calc(var(--safe-b) + var(--tabbar-h) + var(--listbar-h) + 28px);
+}
+
+/* ==========================================================================
+   Drop-up (Listen und ihre Verwaltung)
+   ========================================================================== */
+.dropup-host { position: fixed; inset: 0; z-index: 90; }
+.dropup-scrim {
+  position: absolute; inset: 0;
+  background: var(--scrim);
+  opacity: 0;
+  transition: opacity .22s;
+}
+.dropup-host.open .dropup-scrim { opacity: 1; }
+
+.dropup {
+  position: absolute;
+  left: max(10px, var(--safe-l));
+  right: max(10px, var(--safe-r));
+  bottom: calc(var(--tabbar-h) + var(--listbar-h) + var(--safe-b) + 8px);
+  max-height: 62dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-2);
+  transform: translateY(12px) scale(.97);
+  transform-origin: bottom center;
+  opacity: 0;
+  transition: transform .24s cubic-bezier(.32, .72, 0, 1), opacity .18s;
+}
+.dropup-host.open .dropup { transform: translateY(0) scale(1); opacity: 1; }
+
+.dropup-title {
+  padding: 8px 10px 6px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.dropup-body { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+
+.dropup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 10px;
+  border-radius: 12px;
+  text-align: left;
+  font-size: 15.5px;
+}
+.dropup-item:active { background: var(--surface-2); }
+.dropup-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.dropup-item.danger { color: var(--danger); }
+.dropup-emoji { flex: none; width: 22px; text-align: center; font-size: 16px; }
+.dropup-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dropup-hint { flex: none; font-size: 12.5px; color: var(--text-3); }
+.dropup-sep { height: 1px; margin: 6px 10px; background: var(--border); }
 
 /* ==========================================================================
    Sheets (Formulare, Auswahl, Bestätigungen)

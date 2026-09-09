@@ -279,14 +279,85 @@ export function group(title, rows) {
   ]);
 }
 
-/* ---------- Zeilen-Bausteine ---------- */
+/* ---------- Aufklappbarer Abschnitt ---------- */
 
-export function chevronButton(onClick, label) {
-  const b = el('button', { class: 'chev-btn', type: 'button', 'aria-label': label });
-  b.append(svg(ICON.chevron));
-  b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
-  return b;
+/** Überschrift mit Chevron, die ihren Abschnitt auf- und zuklappt. */
+export function sectionToggle({ label, count, open, onToggle }) {
+  const btn = el('button', {
+    class: 'section-toggle', type: 'button', 'aria-expanded': String(open),
+  });
+  btn.append(
+    svg(ICON.chevron, 'chev'),
+    el('span', { text: label }),
+    count === undefined ? null : el('span', { class: 'section-count', text: String(count) }),
+  );
+  btn.addEventListener('click', () => {
+    const next = btn.getAttribute('aria-expanded') !== 'true';
+    btn.setAttribute('aria-expanded', String(next));
+    haptic();
+    onToggle(next);
+  });
+  return btn;
 }
+
+/* ---------- Drop-up ---------- */
+
+let closeDropup = null;
+
+/**
+ * Menü, das über der unteren Leiste aufklappt.
+ * @param {object} opts
+ * @param {string} [opts.title]
+ * @param {(body:HTMLElement, api:{close:()=>void})=>void} opts.build
+ */
+export function openDropup({ title, build }) {
+  closeDropup?.();
+  const host = $('#dropup-host');
+
+  const body = el('div', { class: 'dropup-body' });
+  const panel = el('div', { class: 'dropup', role: 'dialog', 'aria-modal': 'true', 'aria-label': title || 'Menü' }, [
+    title ? el('div', { class: 'dropup-title', text: title }) : null,
+    body,
+  ]);
+  const scrim = el('div', { class: 'dropup-scrim' });
+
+  host.replaceChildren(scrim, panel);
+  host.hidden = false;
+  requestAnimationFrame(() => host.classList.add('open'));
+
+  const close = () => {
+    if (closeDropup !== close) return;
+    closeDropup = null;
+    host.classList.remove('open');
+    document.removeEventListener('keydown', onKey);
+    setTimeout(() => {
+      if (!host.classList.contains('open')) { host.hidden = true; host.replaceChildren(); }
+    }, 260);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+
+  closeDropup = close;
+  document.addEventListener('keydown', onKey);
+  scrim.addEventListener('click', close);
+
+  build(body, { close });
+  return { close };
+}
+
+/** Eine Zeile im Drop-up. */
+export function dropupItem({ emoji, label, hint, active, danger, onClick }) {
+  const node = el('button', {
+    class: `dropup-item${active ? ' active' : ''}${danger ? ' danger' : ''}`, type: 'button',
+  }, [
+    emoji ? el('span', { class: 'dropup-emoji', text: emoji }) : null,
+    el('span', { class: 'dropup-label', text: label }),
+    hint ? el('span', { class: 'dropup-hint', text: hint }) : null,
+  ]);
+  node.addEventListener('click', () => { haptic(); onClick(); });
+  return node;
+}
+
+/* ---------- Zeilen-Bausteine ---------- */
 
 /** Runder Abhak-Button mit Fortschrittsring. */
 export function checkButton({ value, target, color, onTap, onHold, label }) {

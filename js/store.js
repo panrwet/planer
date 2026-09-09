@@ -4,7 +4,7 @@
 import { uid, todayKey, addDays, weekdayOf, weekStart, daysBetween, clamp } from './util.js';
 
 const KEY = 'planer.v1';
-const SCHEMA = 2;
+const SCHEMA = 3;
 
 /* Auswahlfarben. Helligkeit, Sättigung und Kontrast gegen beide Untergründe
    sind geprüft; die Farbe ist nie das einzige Erkennungsmerkmal – Emoji und
@@ -39,6 +39,8 @@ export const DEFAULTS = {
   theme: 'system',      // 'system' | 'light' | 'dark'
   dayStart: 0,          // 0 | 3  (Stunde, ab der ein neuer Tag zählt)
   doneTodos: 'hide',    // 'hide' | 'show'
+  lastListId: '',       // Liste, die der Todos-Reiter direkt öffnet
+  groups: {},           // Häufigkeits-Gruppen: id -> aufgeklappt (true/false)
 };
 
 function emptyData() {
@@ -49,6 +51,7 @@ function emptyData() {
 
 let data = emptyData();
 let writeTimer = null;
+let dirty = false;      // gibt es ungeschriebene Änderungen?
 const listeners = new Set();
 
 function storage() {
@@ -75,23 +78,34 @@ export function load() {
 
 /** Gebündeltes Schreiben: viele schnelle Taps erzeugen nur einen Write. */
 function save() {
+  dirty = true;
   clearTimeout(writeTimer);
   writeTimer = setTimeout(flush, 120);
   for (const fn of listeners) fn(data);
 }
 
+/**
+ * Schreibt den Stand – aber nur, wenn hier wirklich etwas geändert wurde.
+ * Ohne diese Bedingung würde eine zweite offene Instanz (Safari-Tab neben der
+ * App vom Home-Bildschirm) beim Verlassen ihren alten Stand über die neueren
+ * Daten schreiben.
+ */
 export function flush() {
   clearTimeout(writeTimer);
+  if (!dirty) return true;
   const s = storage();
   if (!s) return false;
   try {
     s.setItem(KEY, JSON.stringify(data));
+    dirty = false;
     return true;
   } catch (err) {
     console.error('Speichern fehlgeschlagen', err);
     return false;
   }
 }
+
+export function isDirty() { return dirty; }
 
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 export function getData() { return data; }
@@ -100,12 +114,57 @@ function migrate(d) {
   if (!d || typeof d !== 'object') return emptyData();
   const out = { ...emptyData(), ...d };
   out.settings = { ...DEFAULTS, ...(d.settings || {}) };
+  out.settings.groups = { ...(d.settings?.groups || {}) };
   out.habits = Array.isArray(d.habits) ? d.habits : [];
   out.lists = Array.isArray(d.lists) ? d.lists : [];
   out.todos = Array.isArray(d.todos) ? d.todos : [];
   out.log = d.log && typeof d.log === 'object' ? d.log : {};
+
+  const from = Number(d.v) || 1;
+  if (from < 3) toSchema3(out);
+
   out.v = SCHEMA;
   return out;
+}
+
+/**
+ * Schema 3: Listen sind Ordner, keine Einträge.
+ * Wer versehentlich Aufgaben als Listen angelegt hat, findet sie danach als
+ * Aufgaben in „Free" wieder. Angefasst werden nur *leere* Listen – wo schon
+ * Aufgaben drinstehen, war die Liste offensichtlich als Liste gemeint.
+ * Läuft genau einmal, weil danach v === 3 gespeichert wird.
+ */
+function toSchema3(d) {
+  const hasTodos = (listId) => d.todos.some(t => t.listId === listId);
+  const empty = d.lists.filter(l => !hasTodos(l.id));
+
+  if (empty.length) {
+    let free = d.lists.find(l => l.name.trim().toLowerCase() === 'free');
+    if (!free) {
+      free = { id: uid(), name: 'Free', emoji: '🗂', color: 'indigo', order: -1 };
+      d.lists.unshift(free);
+    }
+    // „Free" selbst wird nie zu einer Aufgabe, auch wenn sie leer ist.
+    const toConvert = empty.filter(l => l.id !== free.id);
+    let order = d.todos.filter(t => t.listId === free.id).length;
+    for (const l of toConvert) {
+      d.todos.push({
+        id: uid(), listId: free.id,
+        title: l.name, emoji: '', color: l.color || '', note: '', due: '',
+        done: false, doneAt: '', parent: null, order: order++,
+      });
+    }
+    const gone = new Set(toConvert.map(l => l.id));
+    d.lists = d.lists.filter(l => !gone.has(l.id));
+  }
+
+  // Aufgaben tragen kein Emoji mehr.
+  for (const t of d.todos) t.emoji = '';
+
+  d.lists.forEach((l, i) => { l.order = i; });
+  if (!d.lists.some(l => l.id === d.settings.lastListId)) {
+    d.settings.lastListId = d.lists[0]?.id || '';
+  }
 }
 
 /* ---------- Einstellungen ---------- */
@@ -118,6 +177,17 @@ export function setSetting(key, value) {
 }
 
 export function today() { return todayKey(data.settings.dayStart); }
+
+/** Ist eine Häufigkeits-Gruppe aufgeklappt? Alles außer „Erledigt" beginnt offen. */
+export function groupOpen(id) {
+  const v = data.settings.groups?.[id];
+  return v === undefined ? id !== 'done' : !!v;
+}
+
+export function setGroupOpen(id, open) {
+  (data.settings.groups || (data.settings.groups = {}))[id] = open;
+  save();
+}
 
 /* ---------- Farben ---------- */
 
@@ -175,6 +245,19 @@ export function updateHabit(id, fields) {
   Object.assign(h, fields);
   save();
   return h;
+}
+
+/** Neue Reihenfolge nach dem Ziehen. `ids` ist die sichtbare Reihenfolge;
+    Habits, die nicht darin vorkommen (andere Gruppe), behalten ihren Rang
+    hinter den einsortierten. */
+export function reorderHabits(ids) {
+  ids.forEach((id, i) => {
+    const h = habit(id);
+    if (h) h.order = i;
+  });
+  const rest = data.habits.filter(h => !ids.includes(h.id)).sort((a, b) => a.order - b.order);
+  rest.forEach((h, i) => { h.order = ids.length + i; });
+  save();
 }
 
 export function deleteHabit(id) {
@@ -372,9 +455,18 @@ export function updateList(id, fields) {
   return l;
 }
 
+export function reorderLists(ids) {
+  ids.forEach((id, i) => {
+    const l = list(id);
+    if (l) l.order = i;
+  });
+  save();
+}
+
 export function deleteList(id) {
   data.lists = data.lists.filter(l => l.id !== id);
   data.todos = data.todos.filter(t => t.listId !== id);
+  if (data.settings.lastListId === id) data.settings.lastListId = data.lists[0]?.id || '';
   save();
 }
 
@@ -410,7 +502,6 @@ export function addTodo(listId, fields) {
     id: uid(),
     listId,
     title: '',
-    emoji: '',
     color: '',
     note: '',
     due: '',

@@ -212,6 +212,93 @@ test('Umsortieren schreibt Reihenfolge und Verschachtelung', () => {
   assert.deepEqual(S.todosOf(l.id).map(t => t.title), ['B', 'A']);
 });
 
+console.log('\nSortieren');
+test('Habits umsortieren schreibt den Rang', () => {
+  S._setData({});
+  const a = S.addHabit({ name: 'A' });
+  const b = S.addHabit({ name: 'B' });
+  const c = S.addHabit({ name: 'C' });
+  S.reorderHabits([c.id, a.id, b.id]);
+  assert.deepEqual(S.habits().map(h => h.name), ['C', 'A', 'B']);
+});
+
+test('Habits aus anderen Gruppen rutschen dahinter, gehen aber nicht verloren', () => {
+  S._setData({});
+  const a = S.addHabit({ name: 'Täglich A', sched: 'daily' });
+  const b = S.addHabit({ name: 'Wöchentlich', sched: 'week' });
+  const c = S.addHabit({ name: 'Täglich B', sched: 'daily' });
+  S.reorderHabits([c.id, a.id]);          // nur die Tages-Gruppe wurde gezogen
+  const names = S.habits().map(h => h.name);
+  assert.deepEqual(names, ['Täglich B', 'Täglich A', 'Wöchentlich']);
+});
+
+test('Listen umsortieren', () => {
+  S._setData({});
+  const a = S.addList({ name: 'A' });
+  const b = S.addList({ name: 'B' });
+  S.reorderLists([b.id, a.id]);
+  assert.deepEqual(S.lists().map(l => l.name), ['B', 'A']);
+});
+
+test('Gruppen sind offen, nur Erledigt beginnt zu', () => {
+  S._setData({});
+  assert.equal(S.groupOpen('daily'), true);
+  assert.equal(S.groupOpen('done'), false);
+  S.setGroupOpen('daily', false);
+  assert.equal(S.groupOpen('daily'), false);
+});
+
+console.log('\nMigration auf Schema 3');
+test('leere Listen werden Aufgaben in "Free"', () => {
+  S._setData({
+    v: 2,
+    lists: [{ id: 'a', name: 'Milch kaufen', order: 0 }, { id: 'b', name: 'Zahnarzt', order: 1 }],
+    todos: [],
+  });
+  assert.deepEqual(S.lists().map(l => l.name), ['Free']);
+  const free = S.lists()[0];
+  assert.deepEqual(S.todosOf(free.id).map(t => t.title), ['Milch kaufen', 'Zahnarzt']);
+});
+
+test('Listen mit Aufgaben bleiben unangetastet', () => {
+  S._setData({
+    v: 2,
+    lists: [{ id: 'a', name: 'Leer', order: 0 }, { id: 'b', name: 'Einkaufen', order: 1 }],
+    todos: [{ id: 't', listId: 'b', title: 'Brot', order: 0 }],
+  });
+  const names = S.lists().map(l => l.name);
+  assert.ok(names.includes('Einkaufen'), 'Einkaufen bleibt Liste');
+  assert.ok(!names.includes('Leer'), 'Leer wurde umgewandelt');
+  assert.deepEqual(S.todosOf('b').map(t => t.title), ['Brot']);
+});
+
+test('vorhandene "Free"-Liste wird weiterverwendet, nicht doppelt angelegt', () => {
+  S._setData({
+    v: 2,
+    lists: [{ id: 'f', name: 'Free', order: 0 }, { id: 'a', name: 'Anrufen', order: 1 }],
+    todos: [{ id: 't', listId: 'f', title: 'Bestehendes', order: 0 }],
+  });
+  assert.deepEqual(S.lists().map(l => l.name), ['Free']);
+  assert.deepEqual(S.todosOf('f').map(t => t.title), ['Bestehendes', 'Anrufen']);
+});
+
+test('Migration läuft nicht erneut über schon migrierte Daten', () => {
+  S._setData({ v: 2, lists: [{ id: 'a', name: 'X', order: 0 }], todos: [] });
+  const after = JSON.parse(JSON.stringify(S.getData()));
+  S._setData(after);                    // trägt jetzt v: 3
+  assert.deepEqual(S.lists().map(l => l.name), ['Free']);
+  assert.equal(S.todosOf(S.lists()[0].id).length, 1, 'kein zweites Todo entstanden');
+});
+
+test('Aufgaben verlieren ihr Emoji', () => {
+  S._setData({
+    v: 2,
+    lists: [{ id: 'b', name: 'Liste', order: 0 }],
+    todos: [{ id: 't', listId: 'b', title: 'Brot', emoji: '🍞', order: 0 }],
+  });
+  assert.equal(S.todosOf('b')[0].emoji, '');
+});
+
 console.log('\nBackup');
 test('Export und Import erhalten die Daten', () => {
   S._setData({});
