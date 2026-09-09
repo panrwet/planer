@@ -1,7 +1,8 @@
 /* Gemeinsame Oberflächenbausteine: Sheets, Toast, Formularfelder. */
 
 import { $, el, svg, ICON, haptic } from './util.js';
-import { COLORS, colorOf } from './store.js';
+import { COLORS, colorOf, recentEmoji } from './store.js';
+import { searchEmoji, STARTER_EMOJI } from './emoji.js';
 
 /* ---------- Toast ---------- */
 
@@ -96,6 +97,20 @@ export function confirmSheet({ title, message, confirmLabel = 'Löschen', danger
 
 /* ---------- Formularbausteine ---------- */
 
+/**
+ * Verbindliche Reihenfolge der Editor-Felder. Jeder Editor liefert nur die
+ * Bausteine, die es bei ihm gibt – die Reihenfolge steht hier, an einer
+ * Stelle, damit „Neu" und „Bearbeiten" in allen Bereichen gleich aussehen.
+ */
+export const FIELD_ORDER = ['name', 'emoji', 'color', 'due', 'note', 'interval', 'unit', 'amount'];
+
+/** Setzt den Sheet-Inhalt in der verbindlichen Reihenfolge zusammen. */
+export function editorFields(parts) {
+  const unknown = Object.keys(parts).filter(k => !FIELD_ORDER.includes(k));
+  if (unknown.length) console.warn('Unbekannte Editor-Felder:', unknown);
+  return FIELD_ORDER.filter(k => parts[k]).map(k => parts[k]);
+}
+
 export function field(label, controls, hint) {
   return el('div', { class: 'field' }, [
     el('span', { class: 'field-label', text: label }),
@@ -111,44 +126,91 @@ export function textInput({ value = '', placeholder = '', maxlength = 60 }) {
   });
 }
 
-/** Emoji-Feld: freie Eingabe plus eine Reihe schneller Vorschläge. */
-export function emojiPicker(value, suggestions) {
+/**
+ * Emoji-Feld: Vorschau, freie Eingabe und zwei wischbare Zeilen –
+ * Vorschläge passend zum eingegebenen Namen und die zuletzt benutzten.
+ * `suggest(text)` wird vom Namensfeld bei jedem Tastendruck aufgerufen.
+ */
+export function emojiPicker(value) {
+  const state = { value };
+
   const preview = el('div', { class: 'emoji-preview', text: value || '·' });
   const input = el('input', {
-    class: 'input', type: 'text', value, maxlength: 4, placeholder: 'Emoji',
+    class: 'input', type: 'text', value, maxlength: 4, placeholder: 'oder frei eingeben',
     style: 'text-align:center;font-size:20px',
   });
-  const picks = el('div', { class: 'emoji-picks' });
 
-  const state = { value };
-  const sync = (v) => {
-    state.value = v;
-    preview.textContent = v || '·';
-    input.value = v;
-    for (const b of picks.children) b.setAttribute('aria-pressed', b.textContent === v);
+  const suggestRow = el('div', { class: 'emoji-row-scroll' });
+  const recentRow = el('div', { class: 'emoji-row-scroll' });
+  const suggestLabel = el('div', { class: 'emoji-row-label', text: 'Vorschläge' });
+  const recentBlock = el('div', {}, [
+    el('div', { class: 'emoji-row-label', text: 'Zuletzt benutzt' }),
+    recentRow,
+  ]);
+
+  const pick = (e) => {
+    state.value = e;
+    preview.textContent = e || '·';
+    input.value = e;
+    paintPressed();
+    haptic();
   };
 
-  for (const e of suggestions) {
-    picks.append(el('button', {
-      type: 'button', class: 'emoji-pick', text: e, 'aria-pressed': 'false',
-      onclick: () => { sync(e); haptic(); },
+  const paintPressed = () => {
+    for (const row of [suggestRow, recentRow]) {
+      for (const b of row.children) b.setAttribute('aria-pressed', String(b.textContent === state.value));
+    }
+  };
+
+  const fill = (row, emojis) => {
+    row.replaceChildren(...emojis.map(e => {
+      const b = el('button', { type: 'button', class: 'emoji-pick', text: e, 'aria-pressed': String(e === state.value) });
+      b.addEventListener('click', () => pick(e));
+      return b;
     }));
-  }
-  input.addEventListener('input', () => sync([...input.value].slice(0, 2).join('')));
-  sync(value);
+  };
+
+  /** Vorschläge zum Namen; ohne Eingabe die Startauswahl. */
+  const suggest = (text) => {
+    const hits = searchEmoji(text, 20);
+    if (hits.length) {
+      suggestLabel.textContent = 'Passend zum Namen';
+      fill(suggestRow, hits);
+    } else {
+      suggestLabel.textContent = 'Vorschläge';
+      fill(suggestRow, STARTER_EMOJI);
+    }
+    paintPressed();
+  };
+
+  input.addEventListener('input', () => {
+    // Nur das erste Zeichen bzw. Zeichenpaar übernehmen – Emojis sind mehrteilig.
+    const v = [...input.value].slice(0, 2).join('');
+    state.value = v;
+    preview.textContent = v || '·';
+    paintPressed();
+  });
+
+  const recents = recentEmoji();
+  fill(recentRow, recents);
+  recentBlock.hidden = recents.length === 0;
+  suggest(value ? '' : '');
 
   return {
     node: el('div', {}, [
-      el('div', { class: 'emoji-row', style: 'margin-bottom:9px' }, [preview, input]),
-      picks,
+      el('div', { class: 'emoji-row', style: 'margin-bottom:12px' }, [preview, input]),
+      suggestLabel,
+      suggestRow,
+      recentBlock,
     ]),
+    suggest,
     get value() { return state.value; },
   };
 }
 
 export function colorPicker(value) {
   const state = { value };
-  const wrap = el('div', { class: 'swatches' });
+  const wrap = el('div', { class: 'swatches' });   // Raster, zwei Reihen à acht
   const isDark = document.documentElement.dataset.resolved === 'dark';
 
   for (const c of COLORS) {
@@ -345,13 +407,13 @@ export function openDropup({ title, build }) {
 }
 
 /** Eine Zeile im Drop-up. */
-export function dropupItem({ emoji, label, hint, active, danger, onClick }) {
+export function dropupItem({ emoji, label, hint, active, danger, overdue, onClick }) {
   const node = el('button', {
     class: `dropup-item${active ? ' active' : ''}${danger ? ' danger' : ''}`, type: 'button',
   }, [
     emoji ? el('span', { class: 'dropup-emoji', text: emoji }) : null,
     el('span', { class: 'dropup-label', text: label }),
-    hint ? el('span', { class: 'dropup-hint', text: hint }) : null,
+    hint ? el('span', { class: `dropup-hint${overdue ? ' overdue' : ''}`, text: hint }) : null,
   ]);
   node.addEventListener('click', () => { haptic(); onClick(); });
   return node;

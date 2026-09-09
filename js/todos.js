@@ -6,12 +6,23 @@ import { $, el, haptic, formatDue, daysBetween } from './util.js';
 import * as S from './store.js';
 import { attachSortable, isDragging } from './drag.js';
 import {
-  toast, openSheet, confirmSheet, openDropup, dropupItem, field, textInput,
-  emojiPicker, colorPicker, checkButton, sectionToggle,
+  toast, openSheet, confirmSheet, openDropup, dropupItem, field, editorFields,
+  textInput, emojiPicker, colorPicker, checkButton, sectionToggle,
 } from './ui.js';
 
-const LIST_EMOJI = ['📋', '🗂', '🛒', '💼', '🏠', '🎓', '✈️', '🎁', '🔧', '💡', '❤️', '🌿'];
 const MAX_DEPTH = 2;   // drei Ebenen: 0, 1, 2
+
+/** Offene und davon überfällige Aufgaben einer Liste. */
+function listStats(listId) {
+  const items = S.todosOf(listId);
+  const open = items.filter((t) => !t.done);
+  const today = S.today();
+  return {
+    total: items.length,
+    open: open.length,
+    overdue: open.filter((t) => t.due && daysBetween(today, t.due) < 0).length,
+  };
+}
 
 let onSelectList = () => {};
 export function bindListSelect(fn) { onSelectList = fn; }
@@ -26,17 +37,19 @@ export function renderListBar(activeId) {
   const isDark = document.documentElement.dataset.resolved === 'dark';
 
   bar.replaceChildren(...all.map((l) => {
-    const open = S.todosOf(l.id).filter((t) => !t.done).length;
+    const st = listStats(l.id);
     const c = S.colorOf(l.color);
     const tab = el('button', {
       class: `list-tab${l.id === activeId ? ' active' : ''}`,
       type: 'button',
       style: `--tint:${isDark ? c.dark : c.light}`,
       dataset: { id: l.id },
+      // Überfälliges soll man sehen, ohne die Liste zu öffnen.
+      'aria-label': st.overdue ? `${l.name}, ${st.overdue} überfällig` : l.name,
     }, [
       el('span', { class: 'list-tab-emoji', text: l.emoji || '📋' }),
       el('span', { class: 'list-tab-name', text: l.name }),
-      open ? el('span', { class: 'list-tab-badge', text: String(open) }) : null,
+      st.open ? el('span', { class: `list-tab-badge${st.overdue ? ' overdue' : ''}`, text: String(st.open) }) : null,
     ]);
     tab.addEventListener('click', () => { haptic(); onSelectList(l.id); });
     return tab;
@@ -58,12 +71,15 @@ export function openListMenu(activeId, afterChange) {
       const active = S.list(activeId);
 
       for (const l of all) {
-        const items = S.todosOf(l.id);
-        const open = items.filter((t) => !t.done).length;
+        const st = listStats(l.id);
+        const hint = st.open
+          ? `${st.open} offen${st.overdue ? ` · ${st.overdue} überfällig` : ''}`
+          : (st.total ? 'alles erledigt' : 'leer');
         body.append(dropupItem({
           emoji: l.emoji || '📋',
           label: l.name,
-          hint: open ? `${open} offen` : (items.length ? 'alles erledigt' : 'leer'),
+          hint,
+          overdue: st.overdue > 0,
           active: l.id === activeId,
           onClick: () => { close(); onSelectList(l.id); },
         }));
@@ -143,10 +159,17 @@ export function openListEditor(id, afterSave) {
     confirm: 'Sichern',
     build: (body, { close }) => {
       const name = textInput({ value: l.name, placeholder: 'z. B. Einkaufen' });
-      const emoji = emojiPicker(l.emoji, LIST_EMOJI);
+      const emoji = emojiPicker(l.emoji);
       const color = colorPicker(l.color);
+      name.addEventListener('input', () => emoji.suggest(name.value));
+      if (l.name) emoji.suggest(l.name);
 
-      body.append(field('Name', name), field('Emoji', emoji.node), field('Farbe', color.node),
+      body.append(...editorFields({
+        name: field('Name', name),
+        emoji: field('Emoji', emoji.node),
+        color: field('Farbe', color.node),
+      }));
+      body.append(
         existing ? el('button', {
           type: 'button', class: 'btn danger', text: 'Liste löschen',
           onclick: () => {
@@ -171,6 +194,7 @@ export function openListEditor(id, afterSave) {
       const fields = collect();
       if (!fields) return false;
       const saved = existing ? S.updateList(existing.id, fields) : S.addList(fields);
+      S.rememberEmoji(fields.emoji);
       haptic(12);
       toast(existing ? 'Gesichert' : `„${saved.name}" angelegt`);
       afterSave?.(saved);
@@ -258,8 +282,11 @@ export function renderTodos(listId) {
     doneHost.replaceChildren();
   }
 
-  const open = S.todosOf(listId).filter((t) => !t.done).length;
-  $('#todos-subtitle').textContent = open ? `${open} offen` : (S.todosOf(listId).length ? 'Alles erledigt' : '');
+  const st = listStats(listId);
+  $('#todos-subtitle').textContent = st.open
+    ? `${st.open} offen${st.overdue ? ` · ${st.overdue} überfällig` : ''}`
+    : (st.total ? 'Alles erledigt' : '');
+  $('#todos-subtitle').classList.toggle('has-overdue', st.overdue > 0);
   $('#todos-empty').hidden = items.length > 0 || doneItems.length > 0;
   $('#todos-empty-text').textContent = 'Tippe oben rechts auf + für eine neue Aufgabe.';
 }
@@ -272,8 +299,10 @@ function todoRow({ todo: t, depth }, listId, isDark, { draggable }) {
 
   const meta = [];
   if (t.due) {
-    const overdue = !t.done && daysBetween(S.today(), t.due) < 0;
-    meta.push(el('span', { class: overdue ? 'overdue' : '', text: (overdue ? '⚠ ' : '') + formatDue(t.due, S.today()) }));
+    const late = t.done ? 0 : -daysBetween(S.today(), t.due);
+    meta.push(late > 0
+      ? el('span', { class: 'overdue', text: `⚠ ${late === 1 ? '1 Tag' : `${late} Tage`} überfällig` })
+      : el('span', { text: formatDue(t.due, S.today()) }));
   }
   if (kids.length) {
     if (meta.length) meta.push(el('span', { class: 'dot' }));
@@ -337,11 +366,13 @@ export function openTodoEditor(listId, id, afterSave) {
         }));
       }
 
+      body.append(...editorFields({
+        name: field('Name', title),
+        color: field('Farbe', color.node),
+        due: field('Fällig am', [due, quickDue]),
+        note: field('Notiz', note),
+      }));
       body.append(
-        field('Aufgabe', title),
-        field('Fällig am', [due, quickDue]),
-        field('Notiz', note),
-        field('Farbe', color.node),
         existing ? el('button', {
           type: 'button', class: 'btn danger', text: 'Aufgabe löschen',
           onclick: () => {

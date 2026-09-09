@@ -94,6 +94,31 @@ export function weekStart(key) {
   return dateKey(d);
 }
 
+/** Erster Tag des Monats, in dem `key` liegt. */
+export function monthStart(key) {
+  const d = parseKey(key);
+  d.setDate(1);
+  return dateKey(d);
+}
+
+/** Alle Tage des Monats, in dem `key` liegt. */
+export function monthDays(key) {
+  const d = parseKey(key);
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  const last = new Date(year, month + 1, 0).getDate();
+  return Array.from({ length: last }, (_, i) => dateKey(new Date(year, month, i + 1)));
+}
+
+/** Monate addieren, ohne über den Monatsletzten zu rutschen
+    (31. Januar plus ein Monat ist der 1. März, nicht der 3.). */
+export function addMonths(key, n) {
+  const d = parseKey(key);
+  d.setDate(1);
+  d.setMonth(d.getMonth() + n);
+  return dateKey(d);
+}
+
 export function daysBetween(a, b) {
   return Math.round((parseKey(b) - parseKey(a)) / DAY_MS);
 }

@@ -31,13 +31,19 @@ oder Dateien ablegen lässt und über **Daten wiederherstellen** zurückkommt.
 ## Funktionen
 
 **Habits**
-- Nach Häufigkeit gruppiert: *Täglich*, *An bestimmten Tagen*, *Pro Woche* und
-  *Erledigt* – jede Gruppe auf- und zuklappbar, der Zustand bleibt gemerkt
+- Nach Häufigkeit gruppiert: *Täglich*, *An bestimmten Tagen*, *Pro Woche*,
+  *Pro Monat* und *Erledigt* – jede Gruppe auf- und zuklappbar, der Zustand
+  bleibt gemerkt
 - Jede Zeile ist in ihrer Farbe gerahmt und getönt, mit Emoji links und dem
   Abhak-Button rechts; ein Tipp auf die Zeile öffnet die Details
 - Tippen zählt hoch, gedrückt halten zählt zurück; bei Zielwert 1 ein einfacher Haken
-- Zielwert und Einheit frei wählbar (Anzahl, Minuten, Seiten, km, Gläser, eigene …)
-- Zeitplan: jeden Tag, bestimmte Wochentage, oder x-mal pro Woche
+- Ein Ziel, in drei Schritten: **wie oft** (täglich, bestimmte Wochentage, pro
+  Woche, pro Monat), **was gezählt wird** (Anzahl, Minuten, Seiten, km, Gläser,
+  eigene …) und **wie viele** davon pro Intervall
+- Wochen- und Monatsziele summieren die Tageswerte: „60 Seiten pro Woche" geht
+  an sieben Tagen verteilt oder an einem Abend
+- Über das Ziel hinaus zählen ist möglich – in den Details zählt der Knopf
+  weiter, Zurücksetzen ist ein eigener
 - Sortieren: Zeile gedrückt halten und verschieben (innerhalb ihrer Gruppe)
 - Abgehakte Habits verschwinden (Standard) oder werden ausgegraut
 - Details: aktuelle Serie, längste Serie, Erfolgsquote, Kalender über 26 Wochen,
@@ -50,11 +56,22 @@ oder Dateien ablegen lässt und über **Daten wiederherstellen** zurückkommt.
 - Der Pfeil rechts in der Leiste öffnet ein Drop-up: alle Listen mit ihrem
   Stand, neue Liste anlegen, aktuelle Liste bearbeiten oder löschen, Listen
   sortieren
-- Aufgaben mit Name, Farbe, Notiz und optionalem Fälligkeitsdatum; überfällige
-  sind rot markiert. Abhaken sitzt rechts
+- Aufgaben mit Name, Farbe, Notiz und optionalem Fälligkeitsdatum. Abhaken
+  sitzt rechts
+- Überfälliges ist an drei Stellen sichtbar: „3 Tage überfällig" in der Zeile,
+  ein Zähler in der Kopfzeile und ein roter Zähler am Listen-Reiter. Die
+  Sortierung bleibt davon unberührt
 - Unteraufgaben wie in Apple Erinnerungen: Aufgabe gedrückt halten, verschieben,
   nach rechts ziehen rückt sie unter die darüberliegende Aufgabe ein
 - Eine Aufgabe abhaken hakt ihre Unteraufgaben mit ab
+
+**Editoren**
+- Überall dieselbe Feldreihenfolge: Name, Emoji, Farbe, Fälligkeit, Notiz, wie
+  oft, was gezählt wird, wie viele – jeder Editor zeigt nur, was es bei ihm
+  gibt. Die Reihenfolge steht als `FIELD_ORDER` an einer Stelle in `js/ui.js`
+- Emoji-Feld mit zwei wischbaren Zeilen: Vorschläge, die zum eingegebenen Namen
+  passen (aus `js/emoji.js`, deutsche Stichwörter), und die zuletzt benutzten
+- Farbwähler mit 16 Tönen in zwei Reihen
 
 **Einstellungen**
 - Abgehakte Habits ausblenden oder ausgrauen
@@ -81,19 +98,29 @@ js/habits.js            Habits-Liste und Editor
 js/habitDetail.js       Statistiken, Kalender, Balken
 js/todos.js             Listen, Reiterleiste, Drop-up, Aufgaben
 js/drag.js              Umsortieren per Finger, mit und ohne Einrücken
+js/emoji.js             Emoji-Datenbank mit deutscher Stichwortsuche
 js/settings.js          Einstellungen, Sicherung
 js/app.js               Router und Verdrahtung
 test/store.test.mjs     Tests der Rechenlogik
+test/emoji.test.mjs     Tests der Emoji-Suche
 ```
 
 ## Datenformat
 
 Der gespeicherte Stand trägt eine Schema-Nummer (`v`). Beim Laden wird ein
-älterer Stand einmalig hochmigriert – `toSchema3` in `js/store.js` hat zum
-Beispiel Listen ohne Aufgaben in Aufgaben der Liste „Free" umgewandelt, weil
-Listen als Ordner gedacht sind. Wer eine neue Migration ergänzt, zählt `SCHEMA`
-hoch und hängt einen Schritt an; die Tests in `test/store.test.mjs` prüfen
-insbesondere, dass eine Migration nicht zweimal läuft.
+älterer Stand einmalig hochmigriert und das Ergebnis **sofort festgeschrieben** –
+sonst läuft die Migration bei jedem Start erneut und vergibt jedes Mal neue
+Kennungen. Bisher:
+
+- `toSchema3` – Listen ohne Aufgaben werden Aufgaben der Liste „Free", weil
+  Listen als Ordner gedacht sind. Listen mit Inhalt bleiben unangetastet.
+- `toSchema4` – ein Ziel pro Intervall statt Tagesziel *und* Tage-pro-Woche.
+  „20 Seiten an 3 Tagen pro Woche" wird „60 Seiten pro Woche"; die erfassten
+  Tageswerte bleiben unverändert und werden ab dann über das Intervall summiert.
+
+Wer eine Migration ergänzt, zählt `SCHEMA` hoch und hängt einen Schritt an. Die
+Tests prüfen die ganze Kette von einem Stand ohne Versionsnummer bis heute,
+dass keine Werte verloren gehen und dass ein zweiter Start nichts mehr ändert.
 
 Geschrieben wird nur, wenn in dieser Instanz wirklich etwas geändert wurde.
 Sonst würde ein zweites offenes Fenster (Safari-Tab neben der App vom
@@ -105,7 +132,8 @@ schreiben. Ändert eine andere Instanz etwas, übernimmt die App den neuen Stand
 
 ```bash
 python3 -m http.server 8000     # danach http://localhost:8000 öffnen
-node test/store.test.mjs        # Tests der Streak- und Todo-Logik
+node test/store.test.mjs        # Rechenlogik: Intervalle, Streaks, Migrationen
+node test/emoji.test.mjs        # Emoji-Suche
 ```
 
 Nach Änderungen an den Dateien die Version in `sw.js` (`VERSION`) hochzählen,

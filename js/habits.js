@@ -4,18 +4,12 @@ import { $, el, num, plural, haptic, WEEKDAYS_SHORT, formatLongDate } from './ut
 import * as S from './store.js';
 import { attachSortable, isDragging } from './drag.js';
 import {
-  toast, openSheet, confirmSheet, field, textInput, emojiPicker, colorPicker,
-  stepper, chipGroup, checkButton, sectionToggle,
+  toast, openSheet, confirmSheet, field, editorFields, textInput, emojiPicker,
+  colorPicker, stepper, chipGroup, checkButton, sectionToggle,
 } from './ui.js';
 
-const EMOJI_SUGGESTIONS = ['💧', '🏃', '📖', '🧘', '💪', '🥗', '😴', '✍️', '🎯', '🧹', '💊', '🌱', '🎸', '🧠', '☀️', '⭐️'];
-
 /* Reihenfolge der Gruppen von oben nach unten. */
-const GROUPS = [
-  { id: 'daily', label: 'Täglich',              match: (h) => h.sched === 'daily' },
-  { id: 'days',  label: 'An bestimmten Tagen',  match: (h) => h.sched === 'days' },
-  { id: 'week',  label: 'Pro Woche',            match: (h) => h.sched === 'week' },
-];
+const GROUPS = S.INTERVALS.map((i) => ({ id: i.id, label: i.label, match: (h) => h.sched === i.id }));
 
 let onOpenDetail = () => {};
 export function bindDetailOpener(fn) { onOpenDetail = fn; }
@@ -88,7 +82,7 @@ function groupSection(id, label, items, key, dimDone, sortable) {
 }
 
 function habitRow(h, key, dimIfDone) {
-  const value = S.valueOn(h.id, key);
+  const value = S.progressIn(h, key);
   const done = value >= h.target;
   const outOfPlan = !S.showsOn(h, key);
   const isDark = document.documentElement.dataset.resolved === 'dark';
@@ -129,25 +123,20 @@ function dayList(days = []) {
 }
 
 function metaParts(h, key, value, outOfPlan) {
-
   const parts = [];
   const w = S.unitWords(h);
+  const iv = S.intervalOf(h);
 
   if (outOfPlan) {
-    parts.push(el('span', { text: 'Diese Woche geschafft' }));
-  } else if (h.target > 1) {
-    parts.push(el('span', { text: `${num(value)} / ${num(h.target)} ${value === 1 ? w.one : w.many}` }));
-  } else if (h.unit !== 'count') {
-    parts.push(el('span', { text: plural(h.target, w.one, w.many) }));
+    parts.push(el('span', { text: `Diese${h.sched === 'month' ? 'n Monat' : ' Woche'} geschafft` }));
+  } else if (h.target > 1 || h.unit !== 'count') {
+    parts.push(el('span', { text: `${num(value)} / ${num(h.target)} ${h.target === 1 ? w.one : w.many}` }));
+    if (h.sched !== 'day' && h.sched !== 'days') {
+      parts.push(el('span', { text: ` ${iv.per}` }));
+    }
   }
 
-  if (h.sched === 'week') {
-    const n = S.weekCount(h, key);
-    if (!outOfPlan) {
-      if (parts.length) parts.push(el('span', { class: 'dot' }));
-      parts.push(el('span', { text: `${n}/${h.weekTarget} pro Woche` }));
-    }
-  } else if (h.sched === 'days') {
+  if (h.sched === 'days') {
     if (parts.length) parts.push(el('span', { class: 'dot' }));
     parts.push(el('span', { text: dayList(h.days) }));
   }
@@ -165,92 +154,95 @@ function metaParts(h, key, value, outOfPlan) {
 export function openHabitEditor(id, afterSave) {
   const existing = id ? S.habit(id) : null;
   const h = existing || {
-    name: '', emoji: '⭐️', color: 'indigo', unit: 'count', unitLabel: '',
-    target: 1, sched: 'daily', days: [1, 2, 3, 4, 5], weekTarget: 3,
+    name: '', emoji: '', color: 'indigo', note: '',
+    unit: 'count', unitLabel: '', target: 1, sched: 'day', days: [1, 2, 3, 4, 5],
   };
-
   let collect = () => null;
 
   openSheet({
     title: existing ? 'Habit bearbeiten' : 'Neues Habit',
     confirm: 'Sichern',
     build: (body, { close }) => {
+      /* --- Name, Emoji, Farbe --- */
       const name = textInput({ value: h.name, placeholder: 'z. B. Wasser trinken' });
-      const emoji = emojiPicker(h.emoji, EMOJI_SUGGESTIONS);
+      const emoji = emojiPicker(h.emoji);
       const color = colorPicker(h.color);
+      // Der Name speist die Emoji-Vorschläge.
+      name.addEventListener('input', () => emoji.suggest(name.value));
+      if (h.name) emoji.suggest(h.name);
+
+      /* --- Notiz --- */
+      const note = el('textarea', { class: 'input', placeholder: 'Warum? Woran denken?', maxlength: 400 });
+      note.value = h.note || '';
+
+      /* --- Intervall: erst wie oft, dann was, dann wie viel --- */
+      const sched = chipGroup(
+        S.INTERVALS.map((i) => ({ id: i.id, label: i.label })),
+        h.sched, { onChange: syncSched },
+      );
+      const days = chipGroup(
+        [1, 2, 3, 4, 5, 6, 0].map((d) => ({ id: d, label: WEEKDAYS_SHORT[d] })),
+        h.days || [], { multi: true, chipClass: 'day' },
+      );
+      const daysWrap = el('div', { style: 'margin-top:11px' }, [days.node]);
 
       /* --- Einheit --- */
       const unitSel = el('select', { class: 'input' },
-        [...S.UNITS.map(u => el('option', { value: u.id, text: u.label, selected: u.id === h.unit })),
+        [...S.UNITS.map((u) => el('option', { value: u.id, text: u.label, selected: u.id === h.unit })),
          el('option', { value: 'custom', text: 'Eigene …', selected: h.unit === 'custom' })]);
       const customUnit = textInput({ value: h.unitLabel || '', placeholder: 'z. B. Kapitel', maxlength: 18 });
       const customWrap = el('div', { style: 'margin-top:9px' }, [customUnit]);
       customWrap.hidden = h.unit !== 'custom';
       unitSel.addEventListener('change', () => {
         customWrap.hidden = unitSel.value !== 'custom';
-        syncTargetHint();
+        syncAmountHint();
       });
+      customUnit.addEventListener('input', () => syncAmountHint());
 
-      /* --- Zielwert ---
-         Der Hinweistext steht vor dem Stepper, weil dieser sein onInput schon
-         beim Anlegen einmal auslöst. */
-      const targetHint = el('p', { class: 'field-hint' });
-      const target = stepper(h.target, { min: 1, max: 1000, onInput: syncTargetHint });
-      customUnit.addEventListener('input', () => syncTargetHint());
+      /* --- Anzahl (Hinweis steht vor dem Stepper, der beim Anlegen feuert) --- */
+      const amountHint = el('p', { class: 'field-hint' });
+      const target = stepper(h.target, { min: 1, max: 10000, onInput: syncAmountHint });
 
-      function syncTargetHint(t = h.target) {
+      function syncAmountHint(t = h.target) {
         const words = S.unitWords({ unit: unitSel.value, unitLabel: customUnit.value });
-        targetHint.textContent = t === 1
-          ? 'Ein Tipp hakt das Habit ab.'
-          : `Ein Tipp zählt hoch, gedrückt halten zählt zurück. Ziel: ${num(t)} ${words.many} pro Tag.`;
-      }
-
-      /* --- Zeitplan --- */
-      const sched = chipGroup(
-        [{ id: 'daily', label: 'Jeden Tag' }, { id: 'days', label: 'Bestimmte Tage' }, { id: 'week', label: 'X pro Woche' }],
-        h.sched, { onChange: syncSched },
-      );
-      const days = chipGroup(
-        [1, 2, 3, 4, 5, 6, 0].map(d => ({ id: d, label: WEEKDAYS_SHORT[d] })),
-        h.days || [], { multi: true, chipClass: 'day' },
-      );
-      const weekHint = el('p', { class: 'field-hint' });
-      const weekTarget = stepper(h.weekTarget || 3, { min: 1, max: 7, onInput: syncWeekHint });
-      const daysWrap = el('div', { style: 'margin-top:11px' }, [days.node]);
-      const weekWrap = el('div', { style: 'margin-top:11px' }, [weekTarget.node, weekHint]);
-
-      function syncWeekHint(n = h.weekTarget || 3) {
-        weekHint.textContent = `An ${n} Tagen pro Woche das Tagesziel erreichen. Welche Tage, ist dir überlassen.`;
+        const iv = S.INTERVALS.find((i) => i.id === sched.value) || S.INTERVALS[0];
+        const menge = `${num(t)} ${t === 1 ? words.one : words.many} ${iv.per}`;
+        amountHint.textContent = t === 1 && unitSel.value === 'count'
+          ? `Ein Tipp hakt das Habit ab. Ziel: einmal ${iv.per}.`
+          : `Ein Tipp zählt hoch, gedrückt halten zählt zurück. Ziel: ${menge}.`;
       }
       function syncSched(v) {
         daysWrap.hidden = v !== 'days';
-        weekWrap.hidden = v !== 'week';
+        syncAmountHint(target.value);
       }
       syncSched(h.sched);
 
-      body.append(
-        field('Name', name),
-        field('Emoji', emoji.node),
-        field('Farbe', color.node),
-        field('Was wird gezählt?', [unitSel, customWrap]),
-        field('Tagesziel', [target.node, targetHint]),
-        field('Wann', [sched.node, daysWrap, weekWrap]),
-        existing ? el('button', {
+      body.append(...editorFields({
+        name: field('Name', name),
+        emoji: field('Emoji', emoji.node),
+        color: field('Farbe', color.node),
+        note: field('Notiz', note),
+        interval: field('Wie oft', [sched.node, daysWrap]),
+        unit: field('Was wird gezählt?', [unitSel, customWrap]),
+        amount: field('Wie viele', [target.node, amountHint]),
+      }));
+
+      if (existing) {
+        body.append(el('button', {
           type: 'button', class: 'btn danger', text: 'Habit löschen',
           onclick: () => {
             close();
             confirmSheet({
               title: 'Habit löschen?',
-              message: `„${existing.name}“ und alle erfassten Tage werden entfernt. Das lässt sich nicht rückgängig machen.`,
+              message: `„${existing.name}" und alle erfassten Tage werden entfernt. Das lässt sich nicht rückgängig machen.`,
               onConfirm: () => { S.deleteHabit(existing.id); toast('Habit gelöscht'); afterSave?.(null); },
             });
           },
-        }) : null,
-      );
+        }));
+      }
 
       setTimeout(() => { if (!existing) name.focus(); }, 320);
 
-      // Werte beim Sichern einsammeln; null bedeutet "Eingabe unvollständig".
       collect = () => {
         const n = name.value.trim();
         if (!n) { name.focus(); toast('Bitte einen Namen eingeben'); return null; }
@@ -259,12 +251,12 @@ export function openHabitEditor(id, afterSave) {
           name: n,
           emoji: emoji.value || '⭐️',
           color: color.value,
+          note: note.value.trim(),
           unit: unitSel.value,
           unitLabel: unitSel.value === 'custom' ? customUnit.value.trim() : '',
           target: target.value,
           sched: sched.value,
           days: days.value.length ? days.value : [1, 2, 3, 4, 5],
-          weekTarget: weekTarget.value,
         };
       };
     },
@@ -272,8 +264,9 @@ export function openHabitEditor(id, afterSave) {
       const fields = collect();
       if (!fields) return false;
       const saved = existing ? S.updateHabit(existing.id, fields) : S.addHabit(fields);
+      S.rememberEmoji(fields.emoji);
       haptic(12);
-      toast(existing ? 'Gesichert' : `„${saved.name}“ angelegt`);
+      toast(existing ? 'Gesichert' : `„${saved.name}" angelegt`);
       afterSave?.(saved);
     },
   });

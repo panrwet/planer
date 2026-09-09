@@ -91,15 +91,23 @@ test('längste Streak respektiert den Wochenplan', () => {
   assert.equal(S.longestStreak(h), 4);
 });
 
-console.log('\nWochenziel (3x pro Woche)');
-test('erfüllte Woche zählt', () => {
-  const h = setup({ sched: 'week', weekTarget: 3 }, { [MON]: 1, [d(1)]: 1, [d(3)]: 1 });
-  assert.equal(S.weekCount(h, MON), 3);
-  assert.equal(S.currentStreak(h, d(3)), 1);
+console.log('\nWochenziel');
+test('Tageswerte summieren sich über die Woche', () => {
+  const h = setup({ sched: 'week', target: 3 }, { [MON]: 1, [d(1)]: 1 });
+  assert.equal(S.progressIn(h, d(4)), 2, 'Freitag sieht die ganze Woche');
+  assert.equal(S.isDoneOn(h, MON), false);
+  S.setValue(h.id, d(3), 1);
+  assert.equal(S.isDoneOn(h, MON), true);
+});
+
+test('60 Seiten pro Woche gehen auch an einem Tag', () => {
+  const h = setup({ sched: 'week', unit: 'page', target: 60 }, { [MON]: 60 });
+  assert.equal(S.isDoneOn(h, MON), true);
+  assert.equal(S.progressIn(h, d(5)), 60);
 });
 
 test('zwei volle Wochen in Folge', () => {
-  const h = setup({ sched: 'week', weekTarget: 2 }, {
+  const h = setup({ sched: 'week', target: 2 }, {
     [d(-7)]: 1, [d(-6)]: 1,      // Vorwoche
     [MON]: 1, [d(1)]: 1,          // diese Woche
   });
@@ -107,14 +115,63 @@ test('zwei volle Wochen in Folge', () => {
 });
 
 test('unvollständige laufende Woche bricht die Streak nicht', () => {
-  const h = setup({ sched: 'week', weekTarget: 2 }, { [d(-7)]: 1, [d(-6)]: 1, [MON]: 1 });
+  const h = setup({ sched: 'week', target: 2 }, { [d(-7)]: 1, [d(-6)]: 1, [MON]: 1 });
   assert.equal(S.currentStreak(h, MON), 1);   // nur die Vorwoche zählt
 });
 
-test('erreichtes Wochenziel blendet das Habit aus', () => {
-  const h = setup({ sched: 'week', weekTarget: 2 }, { [MON]: 1, [d(1)]: 1 });
+test('erfülltes Wochenziel blendet das Habit aus, am Beitragstag aber nicht', () => {
+  const h = setup({ sched: 'week', target: 2 }, { [MON]: 1, [d(1)]: 1 });
   assert.equal(S.showsOn(h, d(2)), false);   // Mittwoch: Soll erfüllt
   assert.equal(S.showsOn(h, d(1)), true);    // Dienstag selbst: an dem Tag getan
+});
+
+console.log('\nMonatsziel');
+test('Tageswerte summieren sich über den Monat', () => {
+  const h = setup({ sched: 'month', target: 4 }, { '2026-09-03': 2, '2026-09-20': 1 });
+  assert.equal(S.progressIn(h, '2026-09-28'), 3);
+  assert.equal(S.isDoneOn(h, '2026-09-28'), false);
+  S.setValue(h.id, '2026-09-29', 1);
+  assert.equal(S.isDoneOn(h, '2026-09-01'), true);
+});
+
+test('der Vormonat zählt nicht mit', () => {
+  const h = setup({ sched: 'month', target: 2 }, { '2026-08-30': 2 });
+  assert.equal(S.progressIn(h, '2026-09-05'), 0);
+  assert.equal(S.currentStreak(h, '2026-09-05'), 1, 'August war erfüllt');
+});
+
+test('zwei Monate in Folge', () => {
+  const h = setup({ sched: 'month', target: 1, created: '2026-07-01' },
+    { '2026-08-05': 1, '2026-09-05': 1 });
+  assert.equal(S.currentStreak(h, '2026-09-10'), 2);
+});
+
+console.log('\nÜbererfüllung');
+test('über das Ziel hinaus zählen', () => {
+  const h = setup({ target: 3 }, { [MON]: 3 });
+  assert.equal(S.bumpBeyond(h.id, MON), 4);
+  assert.equal(S.bumpBeyond(h.id, MON), 5);
+  assert.equal(S.isDoneOn(h, MON), true, 'bleibt erledigt');
+});
+
+test('Tippen setzt bei erreichtem Ziel zurück, Übererfüllung bleibt erhalten', () => {
+  const h = setup({ target: 2 }, { [MON]: 2 });
+  assert.equal(S.bump(h.id, MON), 0, 'erst zurücksetzen');
+  assert.equal(S.bump(h.id, MON), 1);
+});
+
+test('Übererfüllung verfälscht die Erfolgsquote nicht', () => {
+  const h = setup({ target: 1, created: MON }, { [MON]: 5 });
+  const r = S.completionRate(h, MON);
+  assert.equal(r.due, 1);
+  assert.equal(r.done, 1);
+  assert.equal(r.pct, 100);
+});
+
+test('Wochenziel lässt sich übererfüllen', () => {
+  const h = setup({ sched: 'week', target: 3 }, { [MON]: 3 });
+  assert.equal(S.bumpBeyond(h.id, MON), 4);
+  assert.equal(S.progressIn(h, MON), 4);
 });
 
 console.log('\nZählen und Abhaken');
@@ -137,6 +194,12 @@ test('grobe Ziele bekommen größere Schritte', () => {
   const h = setup({ target: 60, unit: 'min' });
   assert.equal(S.step(h), 6);
   assert.equal(S.bump(h.id, MON), 6);
+});
+
+test('der letzte Tipp füllt genau auf das Ziel auf', () => {
+  const h = setup({ target: 10, unit: 'min' }, { [MON]: 9 });
+  assert.equal(S.bump(h.id, MON), 10, 'nicht 9 + 1 Schritt daneben');
+  assert.equal(S.isDoneOn(h, MON), true);
 });
 
 test('Erfolgsquote zählt nur fällige Tage', () => {
@@ -212,6 +275,69 @@ test('Umsortieren schreibt Reihenfolge und Verschachtelung', () => {
   assert.deepEqual(S.todosOf(l.id).map(t => t.title), ['B', 'A']);
 });
 
+console.log('\nMigration auf Schema 4');
+test('Wochenziel wird zusammengerechnet statt doppelt geführt', () => {
+  S._setData({
+    v: 3,
+    habits: [{ id: 'x', name: 'Lesen', sched: 'week', target: 20, weekTarget: 3,
+               unit: 'page', days: [1, 2, 3], created: '2026-01-01', order: 0 }],
+    lists: [], todos: [], log: {},
+  });
+  const h = S.habits()[0];
+  assert.equal(h.sched, 'week');
+  assert.equal(h.target, 60, '20 Seiten an 3 Tagen sind 60 pro Woche');
+  assert.equal(h.weekTarget, undefined);
+});
+
+test('"daily" wird zu "day"', () => {
+  S._setData({ v: 3, habits: [{ id: 'x', name: 'A', sched: 'daily', target: 1, order: 0 }], lists: [], todos: [], log: {} });
+  assert.equal(S.habits()[0].sched, 'day');
+});
+
+test('erfasste Tage überleben die Migration', () => {
+  S._setData({
+    v: 3,
+    habits: [{ id: 'x', name: 'A', sched: 'week', target: 10, weekTarget: 2, order: 0, created: '2026-01-01' }],
+    lists: [], todos: [], log: { x: { '2026-09-07': 10, '2026-09-08': 10 } },
+  });
+  const h = S.habits()[0];
+  assert.equal(S.valueOn(h.id, '2026-09-07'), 10, 'Werte unverändert');
+  assert.equal(h.target, 20);
+  assert.equal(S.progressIn(h, '2026-09-07'), 20);
+  assert.equal(S.isDoneOn(h, '2026-09-07'), true, 'die alte Absicht ist erfüllt');
+});
+
+test('alte Farbkennungen fallen auf einen vorhandenen Ton zurück', () => {
+  assert.equal(S.colorOf('purple').id, 'violet');
+  assert.equal(S.colorOf('gibtsnicht').id, 'indigo');
+  assert.equal(S.colorOf('red').id, 'red');
+});
+
+test('Migration v1 bis v4 in einem Zug', () => {
+  // Ein Stand ohne Versionsnummer, wie er ganz am Anfang entstand
+  S._setData({
+    habits: [{ id: 'h', name: 'Lesen', sched: 'week', target: 20, weekTarget: 3, order: 0, created: '2026-01-01' }],
+    lists: [{ id: 'a', name: 'Leer', order: 0 }, { id: 'b', name: 'Voll', order: 1 }],
+    todos: [{ id: 't', listId: 'b', title: 'X', emoji: '🍞', order: 0 }],
+    log: { h: { '2026-09-07': 60 } },
+  });
+  const names = S.lists().map(l => l.name).sort();
+  assert.deepEqual(names, ['Free', 'Voll'], 'v3 lief');
+  assert.equal(S.habits()[0].target, 60, 'v4 lief');
+  assert.equal(S.todosOf('b')[0].emoji, '', 'v3 lief auch für Emojis');
+  assert.equal(S.valueOn('h', '2026-09-07'), 60, 'keine Daten verloren');
+});
+
+test('Emoji-Verlauf: neuestes zuerst, ohne Dubletten', () => {
+  S._setData({});
+  S.rememberEmoji('💧');
+  S.rememberEmoji('🏃');
+  S.rememberEmoji('💧');
+  assert.deepEqual(S.recentEmoji().slice(0, 2), ['💧', '🏃']);
+  for (let i = 0; i < 40; i++) S.rememberEmoji(String.fromCodePoint(0x1f600 + i));
+  assert.ok(S.recentEmoji().length <= 24, 'Verlauf wächst nicht unbegrenzt');
+});
+
 console.log('\nSortieren');
 test('Habits umsortieren schreibt den Rang', () => {
   S._setData({});
@@ -224,9 +350,9 @@ test('Habits umsortieren schreibt den Rang', () => {
 
 test('Habits aus anderen Gruppen rutschen dahinter, gehen aber nicht verloren', () => {
   S._setData({});
-  const a = S.addHabit({ name: 'Täglich A', sched: 'daily' });
+  const a = S.addHabit({ name: 'Täglich A', sched: 'day' });
   const b = S.addHabit({ name: 'Wöchentlich', sched: 'week' });
-  const c = S.addHabit({ name: 'Täglich B', sched: 'daily' });
+  const c = S.addHabit({ name: 'Täglich B', sched: 'day' });
   S.reorderHabits([c.id, a.id]);          // nur die Tages-Gruppe wurde gezogen
   const names = S.habits().map(h => h.name);
   assert.deepEqual(names, ['Täglich B', 'Täglich A', 'Wöchentlich']);

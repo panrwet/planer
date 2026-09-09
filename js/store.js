@@ -1,26 +1,55 @@
 /* Datenhaltung. Alles liegt in localStorage auf diesem Gerät – nichts verlässt
    das Telefon. Jede Mutation geht durch save(), damit nichts verloren geht. */
 
-import { uid, todayKey, addDays, weekdayOf, weekStart, daysBetween, clamp } from './util.js';
+import { uid, todayKey, addDays, addMonths, weekdayOf, weekStart, monthStart, monthDays, clamp } from './util.js';
 
 const KEY = 'planer.v1';
-const SCHEMA = 3;
+const SCHEMA = 4;
 
 /* Auswahlfarben. Helligkeit, Sättigung und Kontrast gegen beide Untergründe
    sind geprüft; die Farbe ist nie das einzige Erkennungsmerkmal – Emoji und
    Name stehen immer daneben. */
+/* Auswahlpalette: 14 gleichmäßig über den Farbkreis verteilte Töne plus zwei
+   neutrale, angeordnet als zwei Reihen à acht. In OKLCH bei fester Helligkeit
+   erzeugt, damit alle gleich kräftig wirken und gegen beide Untergründe
+   mindestens 3:1 Kontrast haben. Nachbartöne liegen zwangsläufig nah
+   beieinander (im Cyan-Bereich ΔE ~5) – für einen Farbwähler unkritisch, weil
+   pro Objekt nur eine Farbe gilt und Emoji plus Name die Erkennung tragen. */
 export const COLORS = [
-  { id: 'red',    name: 'Rot',     light: '#e5484d', dark: '#ff6369' },
-  { id: 'orange', name: 'Orange',  light: '#e86a10', dark: '#ff8b3e' },
-  { id: 'gold',   name: 'Gold',    light: '#b58100', dark: '#e0a516' },
-  { id: 'green',  name: 'Grün',    light: '#3e9b4f', dark: '#4cc38a' },
-  { id: 'teal',   name: 'Türkis',  light: '#0e9ba8', dark: '#0ec0d0' },
-  { id: 'blue',   name: 'Blau',    light: '#2c7be5', dark: '#5aa2ff' },
-  { id: 'indigo', name: 'Indigo',  light: '#5751d4', dark: '#9b96f5' },
-  { id: 'purple', name: 'Violett', light: '#8e4ec6', dark: '#b57ce5' },
-  { id: 'pink',   name: 'Pink',    light: '#db3a81', dark: '#ff7cb3' },
-  { id: 'slate',  name: 'Grau',    light: '#6b7280', dark: '#9ba1ad' },
+  { id: 'red',     name: 'Rot',        light: '#cd4845', dark: '#fc867f' },
+  { id: 'orange',  name: 'Orange',     light: '#c15a00', dark: '#f59052' },
+  { id: 'amber',   name: 'Bernstein',  light: '#a47003', dark: '#e1a02b' },
+  { id: 'gold',    name: 'Gold',       light: '#8b7e02', dark: '#c0b02b' },
+  { id: 'lime',    name: 'Limette',    light: '#618b02', dark: '#93bf53' },
+  { id: 'green',   name: 'Grün',       light: '#039450', dark: '#58c882' },
+  { id: 'emerald', name: 'Smaragd',    light: '#04907d', dark: '#00cab0' },
+  { id: 'teal',    name: 'Türkis',     light: '#008c98', dark: '#0bc4d4' },
+  { id: 'cyan',    name: 'Cyan',       light: '#0087b4', dark: '#20bdf8' },
+  { id: 'blue',    name: 'Blau',       light: '#2b7ade', dark: '#76b0fe' },
+  { id: 'indigo',  name: 'Indigo',     light: '#6f69dc', dark: '#a1a3fe' },
+  { id: 'violet',  name: 'Violett',    light: '#985ac8', dark: '#c793f4' },
+  { id: 'magenta', name: 'Magenta',    light: '#b44da5', dark: '#e489d4' },
+  { id: 'pink',    name: 'Pink',       light: '#c74679', dark: '#f684ab' },
+  { id: 'brown',   name: 'Braun',      light: '#8b6953', dark: '#bc9780' },
+  { id: 'slate',   name: 'Grau',       light: '#727d89', dark: '#a4afbc' },
 ];
+
+/* Alte Farb-Kennungen, die es nicht mehr gibt, auf den nächsten Ton abbilden. */
+const COLOR_ALIASES = { purple: 'violet' };
+
+
+/* Intervalle. Ein Habit hat genau ein Ziel, und zwar pro Intervall – kein
+   zweites Ziel daneben. */
+export const INTERVALS = [
+  { id: 'day',   label: 'Täglich',            per: 'pro Tag',   noun: 'Tag',   nounPl: 'Tage'   },
+  { id: 'days',  label: 'An bestimmten Tagen', per: 'pro Tag',   noun: 'Tag',   nounPl: 'Tage'   },
+  { id: 'week',  label: 'Pro Woche',          per: 'pro Woche', noun: 'Woche', nounPl: 'Wochen' },
+  { id: 'month', label: 'Pro Monat',          per: 'pro Monat', noun: 'Monat', nounPl: 'Monate' },
+];
+
+export function intervalOf(h) {
+  return INTERVALS.find(i => i.id === h.sched) || INTERVALS[0];
+}
 
 export const UNITS = [
   { id: 'count',   one: 'Mal',     many: 'Mal',      label: 'Anzahl' },
@@ -41,6 +70,7 @@ export const DEFAULTS = {
   doneTodos: 'hide',    // 'hide' | 'show'
   lastListId: '',       // Liste, die der Todos-Reiter direkt öffnet
   groups: {},           // Häufigkeits-Gruppen: id -> aufgeklappt (true/false)
+  recentEmoji: [],      // zuletzt gewählte Emojis, neuestes zuerst
 };
 
 function emptyData() {
@@ -69,7 +99,18 @@ export function load() {
   if (!s) return data;
   try {
     const raw = s.getItem(KEY);
-    if (raw) data = migrate(JSON.parse(raw));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const fromVersion = Number(parsed?.v) || 1;
+      data = migrate(parsed);
+      // Eine gelaufene Migration muss festgeschrieben werden. Sonst bleibt der
+      // alte Stand liegen, die Migration läuft bei jedem Start erneut und
+      // vergibt dabei jedes Mal neue Kennungen.
+      if (fromVersion < SCHEMA) {
+        dirty = true;
+        flush();
+      }
+    }
   } catch (err) {
     console.warn('Gespeicherte Daten unlesbar, starte leer.', err);
   }
@@ -120,11 +161,33 @@ function migrate(d) {
   out.todos = Array.isArray(d.todos) ? d.todos : [];
   out.log = d.log && typeof d.log === 'object' ? d.log : {};
 
+  out.settings.recentEmoji = Array.isArray(d.settings?.recentEmoji) ? [...d.settings.recentEmoji] : [];
+
   const from = Number(d.v) || 1;
   if (from < 3) toSchema3(out);
+  if (from < 4) toSchema4(out);
 
   out.v = SCHEMA;
   return out;
+}
+
+/**
+ * Schema 4: ein Ziel pro Intervall statt Tagesziel *und* Tage-pro-Woche.
+ * „20 Seiten an 3 Tagen pro Woche" wird zu „60 Seiten pro Woche" – die
+ * Absicht bleibt, die Bedienung wird einfacher. Erfasste Tageswerte bleiben
+ * unverändert, sie werden ab jetzt über das Intervall summiert.
+ */
+function toSchema4(d) {
+  for (const h of d.habits) {
+    if (h.sched === 'daily' || !h.sched) h.sched = 'day';
+    else if (h.sched === 'week') {
+      const days = Math.max(1, Number(h.weekTarget) || 1);
+      h.target = Math.max(1, Math.round((Number(h.target) || 1) * days));
+    }
+    delete h.weekTarget;
+    if (typeof h.note !== 'string') h.note = '';
+    if (!Array.isArray(h.days) || !h.days.length) h.days = [1, 2, 3, 4, 5];
+  }
 }
 
 /**
@@ -189,10 +252,24 @@ export function setGroupOpen(id, open) {
   save();
 }
 
+/** Zuletzt gewähltes Emoji nach vorne stellen (für die Verlaufszeile). */
+export function rememberEmoji(emoji) {
+  if (!emoji) return;
+  const list = data.settings.recentEmoji || (data.settings.recentEmoji = []);
+  const next = [emoji, ...list.filter(e => e !== emoji)].slice(0, 24);
+  data.settings.recentEmoji = next;
+  save();
+}
+
+export function recentEmoji() {
+  return [...(data.settings.recentEmoji || [])];
+}
+
 /* ---------- Farben ---------- */
 
 export function colorOf(id) {
-  return COLORS.find(c => c.id === id) || COLORS[6];
+  const key = COLOR_ALIASES[id] || id;
+  return COLORS.find(c => c.id === key) || COLORS.find(c => c.id === 'indigo');
 }
 
 /** CSS-Variablen für eine Zeile/Karte in der Objektfarbe.
@@ -224,12 +301,12 @@ export function addHabit(fields) {
     name: 'Neues Habit',
     emoji: '⭐️',
     color: 'indigo',
+    note: '',
     unit: 'count',
     unitLabel: '',
-    target: 1,
-    sched: 'daily',        // 'daily' | 'days' | 'week'
+    target: 1,             // Anzahl pro Intervall
+    sched: 'day',          // 'day' | 'days' | 'week' | 'month'
     days: [1, 2, 3, 4, 5], // nur bei sched === 'days'  (0 = Sonntag)
-    weekTarget: 3,         // nur bei sched === 'week'
     created: today(),
     order: data.habits.length,
     ...fields,
@@ -285,7 +362,8 @@ export function valueOn(habitId, key) {
 export function setValue(habitId, key, value) {
   const h = habit(habitId);
   if (!h) return 0;
-  const v = clamp(Math.round(value * 100) / 100, 0, h.target * 100);
+  // Großzügig nach oben offen, damit Übererfüllung möglich bleibt.
+  const v = clamp(Math.round(value * 100) / 100, 0, Math.max(1, h.target) * 1000);
   const entries = data.log[habitId] || (data.log[habitId] = {});
   if (v <= 0) delete entries[key];
   else entries[key] = v;
@@ -299,135 +377,167 @@ export function step(h) {
   return h.target > 20 ? Math.max(1, Math.round(h.target / 10)) : 1;
 }
 
+/**
+ * Ein Tipp. Gezählt wird immer auf dem heutigen Tag; erfüllt wird gegen das
+ * Intervall gerechnet. Ist das Intervallziel erreicht, nimmt der nächste Tipp
+ * den heutigen Beitrag wieder zurück – das ist die Korrektur, die man in
+ * diesem Moment will.
+ */
 export function bump(habitId, key) {
   const h = habit(habitId);
   if (!h) return 0;
+  if (isDoneOn(h, key)) return setValue(habitId, key, 0);
   const cur = valueOn(habitId, key);
-  if (cur >= h.target) return setValue(habitId, key, 0);
-  return setValue(habitId, key, Math.min(h.target, cur + step(h)));
+  const missing = h.target - progressIn(h, key);
+  return setValue(habitId, key, cur + Math.min(step(h), Math.max(step(h), missing)));
 }
 
+/** Zählt einen Schritt zurück, ohne unter null zu gehen. */
 export function unbump(habitId, key) {
   const h = habit(habitId);
   if (!h) return 0;
-  const cur = valueOn(habitId, key);
-  if (cur >= h.target) return setValue(habitId, key, Math.max(0, h.target - step(h)));
-  return setValue(habitId, key, Math.max(0, cur - step(h)));
+  return setValue(habitId, key, Math.max(0, valueOn(habitId, key) - step(h)));
 }
 
-export function isDoneOn(h, key) {
-  return valueOn(h.id, key) >= h.target;
+/** Zählt über das Ziel hinaus weiter – „einmal mehr als geplant". */
+export function bumpBeyond(habitId, key) {
+  const h = habit(habitId);
+  if (!h) return 0;
+  return setValue(habitId, key, valueOn(habitId, key) + step(h));
 }
 
-/* ---------- Zeitplan ---------- */
+/* ---------- Zeitplan und Intervalle ---------- */
 
-/** Ist das Habit an diesem Tag überhaupt fällig? */
+/** Ist das Habit an diesem Tag überhaupt fällig? Nur „bestimmte Tage"
+    schränkt ein; Wochen- und Monatsziele darf man an jedem Tag angehen. */
 export function isActiveOn(h, key) {
   if (h.sched === 'days') return (h.days || []).includes(weekdayOf(key));
-  return true; // 'daily' und 'week' gelten an jedem Tag
+  return true;
 }
 
-/** Erfüllte Tage in der Woche, in der `key` liegt (nur für sched 'week'). */
-export function weekCount(h, key) {
-  const start = weekStart(key);
-  let n = 0;
-  for (let i = 0; i < 7; i++) if (isDoneOn(h, addDays(start, i))) n++;
-  return n;
+/** Erster Tag des Intervalls, in dem `key` liegt. */
+export function periodStart(h, key) {
+  if (h.sched === 'week') return weekStart(key);
+  if (h.sched === 'month') return monthStart(key);
+  return key;
 }
 
-/** Zeigt die Liste das Habit heute? Ein Wochenziel-Habit fällt für den Rest
-    der Woche heraus, sobald es erreicht ist. */
+/** Alle Tage des Intervalls, in dem `key` liegt. */
+export function periodDays(h, key) {
+  if (h.sched === 'week') {
+    const start = weekStart(key);
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  }
+  if (h.sched === 'month') return monthDays(key);
+  return [key];
+}
+
+/** Voriges Intervall (für die Streak-Berechnung). */
+function prevPeriod(h, key) {
+  if (h.sched === 'week') return addDays(weekStart(key), -7);
+  if (h.sched === 'month') return addMonths(monthStart(key), -1);
+  return addDays(key, -1);
+}
+
+/** Erreichter Wert im Intervall: bei Tageszielen der Tag selbst, sonst die
+    Summe aller Tage der Woche bzw. des Monats. */
+export function progressIn(h, key) {
+  const entries = data.log[h.id];
+  if (!entries) return 0;
+  if (h.sched === 'week' || h.sched === 'month') {
+    let sum = 0;
+    for (const d of periodDays(h, key)) sum += entries[d] || 0;
+    return Math.round(sum * 100) / 100;
+  }
+  return entries[key] || 0;
+}
+
+/** Ist das Ziel des Intervalls erreicht, in dem `key` liegt? */
+export function isDoneOn(h, key) {
+  return progressIn(h, key) >= h.target;
+}
+
+/** Zeigt die Liste das Habit an diesem Tag?
+    Ein erfülltes Wochen- oder Monatsziel fällt für den Rest des Intervalls
+    heraus – außer der Tag selbst hat dazu beigetragen, dann bleibt es
+    sichtbar, damit man es korrigieren kann. */
 export function showsOn(h, key) {
   if (!isActiveOn(h, key)) return false;
-  if (h.sched === 'week' && !isDoneOn(h, key) && weekCount(h, key) >= h.weekTarget) return false;
+  if (h.sched === 'week' || h.sched === 'month') {
+    if (isDoneOn(h, key) && !valueOn(h.id, key)) return false;
+  }
   return true;
 }
 
 /* ---------- Statistik ---------- */
 
-/** Aktuelle Streak.
-    Tage-Habits: aufeinanderfolgende *fällige* Tage – ein freier Dienstag
-    unterbricht ein Mo/Mi/Fr-Habit nicht.
-    Wochen-Habits: aufeinanderfolgende Wochen mit erreichtem Wochenziel.
-    Der laufende Tag bzw. die laufende Woche zählt erst mit, wenn erfüllt,
-    bricht die Streak aber auch nicht. */
+/** Aufeinanderfolgende erfüllte Intervalle bis heute.
+    Tage-Habits überspringen nicht fällige Tage, ohne die Serie zu brechen.
+    Das laufende Intervall zählt erst mit, wenn erfüllt, bricht sie aber
+    auch nicht ab. */
 export function currentStreak(h, ref = today()) {
-  if (h.sched === 'week') {
-    let n = 0;
-    let w = weekStart(ref);
-    if (weekCount(h, w) >= h.weekTarget) { n++; }
-    w = addDays(w, -7);
-    while (weekCount(h, w) >= h.weekTarget) { n++; w = addDays(w, -7); }
-    return n;
-  }
   let n = 0;
   let key = ref;
   let guard = 0;
-  // Heute darf noch offen sein, ohne die Streak zu beenden.
-  if (isActiveOn(h, key) && !isDoneOn(h, key)) key = addDays(key, -1);
-  while (guard++ < 3660) {
-    if (!isActiveOn(h, key)) { key = addDays(key, -1); continue; }
+
+  if (!isDoneOn(h, key)) key = prevPeriod(h, key);
+
+  while (guard++ < 4000) {
+    if (h.sched === 'days' && !isActiveOn(h, key)) { key = prevPeriod(h, key); continue; }
     if (!isDoneOn(h, key)) break;
     n++;
-    key = addDays(key, -1);
+    key = prevPeriod(h, key);
   }
   return n;
 }
 
-export function longestStreak(h) {
-  const keys = Object.keys(data.log[h.id] || {}).filter(k => isDoneOn(h, k)).sort();
+export function longestStreak(h, ref = today()) {
+  const entries = data.log[h.id] || {};
+  const keys = Object.keys(entries).sort();
   if (!keys.length) return 0;
 
-  if (h.sched === 'week') {
-    const weeks = [...new Set(keys.map(weekStart))].filter(w => weekCount(h, w) >= h.weekTarget).sort();
-    let best = 0, run = 0, prev = null;
-    for (const w of weeks) {
-      run = prev && daysBetween(prev, w) === 7 ? run + 1 : 1;
-      prev = w;
-      best = Math.max(best, run);
-    }
-    return best;
-  }
+  const start = keys[0];
+  let best = 0, run = 0;
+  let guard = 0;
+  let key = periodStart(h, start);
 
-  let best = 0, run = 0, prev = null;
-  for (const k of keys) {
-    if (prev) {
-      // Nur fällige Tage zwischen prev und k müssen erfüllt sein.
-      let gapOk = true;
-      for (let d = addDays(prev, 1); d < k; d = addDays(d, 1)) {
-        if (isActiveOn(h, d)) { gapOk = false; break; }
-      }
-      run = gapOk ? run + 1 : 1;
-    } else {
-      run = 1;
+  while (key <= ref && guard++ < 4000) {
+    if (h.sched === 'days' && !isActiveOn(h, key)) {
+      key = nextPeriod(h, key);
+      continue;                    // freier Tag unterbricht die Serie nicht
     }
-    prev = k;
-    best = Math.max(best, run);
+    if (isDoneOn(h, key)) { run++; best = Math.max(best, run); }
+    else run = 0;
+    key = nextPeriod(h, key);
   }
   return best;
 }
 
-/** Erfüllte von fälligen Tagen seit Anlage bis heute. */
+function nextPeriod(h, key) {
+  if (h.sched === 'week') return addDays(key, 7);
+  if (h.sched === 'month') return addMonths(key, 1);
+  return addDays(key, 1);
+}
+
+/** Erfüllte von fälligen Intervallen seit Anlage. */
 export function completionRate(h, ref = today()) {
-  const start = h.created && h.created <= ref ? h.created : ref;
+  const from = h.created && h.created <= ref ? h.created : ref;
   let due = 0, done = 0;
-  if (h.sched === 'week') {
-    for (let w = weekStart(start); w <= ref; w = addDays(w, 7)) {
-      due += h.weekTarget;
-      done += Math.min(h.weekTarget, weekCount(h, w));
-    }
-  } else {
-    for (let k = start; k <= ref; k = addDays(k, 1)) {
-      if (!isActiveOn(h, k)) continue;
+  let key = periodStart(h, from);
+  let guard = 0;
+  while (key <= ref && guard++ < 4000) {
+    if (h.sched !== 'days' || isActiveOn(h, key)) {
       due++;
-      if (isDoneOn(h, k)) done++;
+      if (isDoneOn(h, key)) done++;
     }
+    key = nextPeriod(h, key);
   }
   return { due, done, pct: due ? Math.round((done / due) * 100) : 0 };
 }
 
+/** Wie viele Tage insgesamt erfasst wurden (für die Übersicht). */
 export function totalDone(h) {
-  return Object.keys(data.log[h.id] || {}).filter(k => isDoneOn(h, k)).length;
+  return Object.keys(data.log[h.id] || {}).length;
 }
 
 /* ---------- Listen ---------- */

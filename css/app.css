@@ -160,6 +160,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .title { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
 #screen-todos .title, #screen-detail .title { margin-top: 6px; }
 .subtitle { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+.subtitle.has-overdue { color: var(--danger); font-weight: 550; }
 
 .icon-btn {
   width: 36px; height: 36px;
@@ -538,8 +539,19 @@ body.is-dragging .scroll { overflow: hidden; }
 .hm-legend .hm-cell { width: 11px; height: 11px; }
 
 /* ---- Balken, letzte 30 Tage ---- */
-.bars { display: flex; align-items: flex-end; gap: 2px; height: 92px; }
+/* 30 Spalten mit Zwischenraum gehen bei der Subpixel-Rundung leicht über die
+   Kante. Das Diagramm wird deshalb hart begrenzt – es darf nie aus seiner
+   Karte laufen und die Seite seitwärts scrollen lassen. */
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 92px;
+  overflow: hidden;
+  max-width: 100%;
+}
 .bar-col { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; position: relative; }
+.bars-wrap { position: relative; max-width: 100%; overflow: hidden; }
 .bar {
   width: 100%;
   min-height: 2px;
@@ -626,6 +638,8 @@ body.is-dragging .scroll { overflow: hidden; }
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+/* Überfälliges soll man am Reiter erkennen, ohne die Liste zu öffnen. */
+.list-tab-badge.overdue { background: var(--danger); }
 
 .listbar-more {
   flex: none;
@@ -702,6 +716,7 @@ body.is-dragging .scroll { overflow: hidden; }
 .dropup-emoji { flex: none; width: 22px; text-align: center; font-size: 16px; }
 .dropup-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropup-hint { flex: none; font-size: 12.5px; color: var(--text-3); }
+.dropup-hint.overdue { color: var(--danger); font-weight: 600; }
 .dropup-sep { height: 1px; margin: 6px 10px; background: var(--border); }
 
 /* ==========================================================================
@@ -798,36 +813,81 @@ select.input {
   border: 1px solid var(--border);
   border-radius: 13px;
 }
-.emoji-picks { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
+
+.emoji-row-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  margin: 0 0 5px 2px;
+}
+
+/* Eine Zeile, die man seitlich wischt – zeigt viele Emojis ohne den Dialog
+   in die Länge zu ziehen. Die Ränder werden weich ausgeblendet, damit man
+   sieht, dass es weitergeht. */
+.emoji-row-scroll {
+  display: flex;
+  gap: 6px;
+  margin: 0 -16px 14px;
+  padding: 2px 16px 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+.emoji-row-scroll::-webkit-scrollbar { display: none; }
+.emoji-row-scroll:empty { display: none; }
+
 .emoji-pick {
-  width: 36px; height: 36px;
+  flex: none;
+  width: 42px; height: 42px;
   display: grid; place-items: center;
-  font-size: 19px;
-  border-radius: 9px;
+  font-size: 21px;
+  border-radius: 11px;
   background: var(--surface);
   border: 1px solid var(--border);
 }
-.emoji-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.emoji-pick[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 .emoji-pick:active { transform: scale(.9); }
 
-.swatches { display: flex; flex-wrap: wrap; gap: 9px; }
+/* Acht Spalten, also genau zwei Reihen bei 16 Farben. */
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 10px 8px;
+  justify-items: center;
+}
 .swatch {
-  width: 34px; height: 34px;
+  width: 32px; height: 32px;
   border-radius: 50%;
   background: var(--sw);
   position: relative;
   transition: transform .12s;
 }
+/* Die Auswahl zeigt ein Ring außen herum – das Feld selbst bleibt gleich
+   groß, damit das Tippziel nicht schrumpft. */
 .swatch::after {
   content: "";
   position: absolute; inset: -4px;
   border-radius: 50%;
-  border: 2px solid var(--sw);
+  border: 2.5px solid var(--sw);
   opacity: 0;
-  transition: opacity .15s;
+  transform: scale(.85);
+  transition: opacity .15s, transform .15s cubic-bezier(.3, 1.4, .5, 1);
 }
-.swatch[aria-pressed="true"]::after { opacity: 1; }
-.swatch[aria-pressed="true"] { transform: scale(.88); }
+.swatch[aria-pressed="true"]::after { opacity: 1; transform: scale(1); }
+.swatch[aria-pressed="true"]::before {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+.swatch:active { transform: scale(.9); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .chip {
