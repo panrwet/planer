@@ -3,7 +3,12 @@
 
 import assert from 'node:assert/strict';
 import * as S from '../js/store.js';
-import { addDays } from '../js/util.js';
+import { addDays, weekdayOf } from '../js/util.js';
+
+/** Wochentag von heute – für Tests, die einen fälligen bzw. freien Tag brauchen. */
+function weekdayOfToday() {
+  return weekdayOf(S.today());
+}
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -423,6 +428,95 @@ test('Aufgaben verlieren ihr Emoji', () => {
     todos: [{ id: 't', listId: 'b', title: 'Brot', emoji: '🍞', order: 0 }],
   });
   assert.equal(S.todosOf('b')[0].emoji, '');
+});
+
+console.log('\nÜberblick für die Startseite');
+test('Habits nach Intervall aufgeschlüsselt, Summe passt zur Gesamtzahl', () => {
+  S._setData({});
+  S.addHabit({ name: 'A', sched: 'day' });
+  S.addHabit({ name: 'B', sched: 'day' });
+  S.addHabit({ name: 'C', sched: 'days', days: [weekdayOfToday()] });
+  S.addHabit({ name: 'D', sched: 'week', target: 3 });
+  S.addHabit({ name: 'E', sched: 'month', target: 2 });
+  const o = S.overview();
+
+  const byId = Object.fromEntries(o.habits.byInterval.map(g => [g.id, g]));
+  assert.equal(byId.day.total, 2);
+  assert.equal(byId.days.total, 1);
+  assert.equal(byId.week.total, 1);
+  assert.equal(byId.month.total, 1);
+  assert.equal(o.habits.total, 5);
+  assert.equal(o.habits.byInterval.reduce((n, g) => n + g.due, 0), o.habits.due,
+    'die fälligen je Intervall müssen die Gesamtzahl ergeben');
+});
+
+test('Intervalle ohne Habits erscheinen nicht', () => {
+  S._setData({});
+  S.addHabit({ name: 'A', sched: 'day' });
+  const o = S.overview();
+  assert.deepEqual(o.habits.byInterval.map(g => g.id), ['day']);
+});
+
+test('an einem freien Tag ist die Gruppe gelistet, aber nicht fällig', () => {
+  S._setData({});
+  // Wochentag wählen, der heute *nicht* ist
+  const other = (weekdayOfToday() + 3) % 7;
+  S.addHabit({ name: 'Selten', sched: 'days', days: [other] });
+  const o = S.overview();
+  assert.equal(o.habits.byInterval[0].total, 1);
+  assert.equal(o.habits.byInterval[0].due, 0);
+  assert.equal(o.habits.resting, 1, 'zählt als heute nicht dran');
+});
+
+test('erfülltes Wochenziel schrumpft den Nenner nicht', () => {
+  S._setData({});
+  const h = S.addHabit({ name: 'Lesen', sched: 'week', target: 10 });
+  S.addHabit({ name: 'Wasser', sched: 'day', target: 1 });
+  S.setValue(h.id, S.today(), 10);
+  const o = S.overview();
+  assert.equal(o.habits.due, 2, 'beide bleiben im Nenner');
+  assert.equal(o.habits.done, 1);
+});
+
+test('Aufgaben: gesamt, offen, erledigt, überfällig', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  S.addTodo(l.id, { title: 'offen ohne Datum' });
+  S.addTodo(l.id, { title: 'heute', due: S.today() });
+  S.addTodo(l.id, { title: 'alt', due: '2020-01-01' });
+  const d = S.addTodo(l.id, { title: 'fertig' });
+  S.toggleTodo(d.id);
+
+  const t = S.overview().todos;
+  assert.equal(t.total, 4);
+  assert.equal(t.open, 3);
+  assert.equal(t.done, 1);
+  assert.equal(t.overdue.length, 1);
+  assert.equal(t.today.length, 1);
+  assert.equal(t.noDue, 1);
+  assert.equal(t.lists, 1);
+  assert.equal(t.open + t.done, t.total, 'offen und erledigt ergeben die Gesamtzahl');
+});
+
+test('erledigte Aufgaben zählen nicht als überfällig', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const t = S.addTodo(l.id, { title: 'alt', due: '2020-01-01' });
+  assert.equal(S.overview().todos.overdue.length, 1);
+  S.toggleTodo(t.id);
+  assert.equal(S.overview().todos.overdue.length, 0);
+});
+
+test('Serien nach Länge sortiert', () => {
+  S._setData({});
+  const a = S.addHabit({ name: 'Kurz', sched: 'day', created: '2026-01-01' });
+  const b = S.addHabit({ name: 'Lang', sched: 'day', created: '2026-01-01' });
+  const today = S.today();
+  S.setValue(a.id, today, 1);
+  for (let i = 0; i < 4; i++) S.setValue(b.id, addDays(today, -i), 1);
+  const st = S.overview().streaks;
+  assert.equal(st[0].habit.name, 'Lang');
+  assert.ok(st[0].streak > st[1].streak);
 });
 
 console.log('\nBackup');

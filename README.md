@@ -31,11 +31,22 @@ oder Dateien ablegen lässt und über **Daten wiederherstellen** zurückkommt.
 ## Funktionen
 
 **Startseite**
-- Habits heute: erledigt von fällig, Fortschrittsbalken und ein Punkt je Habit
-- Aufgaben nach Fälligkeit: überfällig, heute, morgen, diese Woche – jede Zeile
-  öffnet die betroffenen Aufgaben, direkt abhakbar
+- Habits heute: erledigt von fällig, Fortschrittsbalken und ein Punkt je Habit.
+  Darunter nach Rhythmus aufgeschlüsselt – wie viele Habits es täglich, an
+  bestimmten Tagen, pro Woche und pro Monat gibt und wie viele davon in der
+  laufenden Periode schon erfüllt sind. Ein Rhythmus, der heute nicht dran ist,
+  steht als „frei"; Antippen öffnet die Gruppe im Habits-Reiter
+- Aufgaben: zuerst der Bestand (insgesamt, offen, erledigt, überfällig – letztes
+  in Warnfarbe), darunter nach Fälligkeit aufgeteilt in überfällig, heute,
+  morgen und diese Woche. Jede Zeile öffnet die betroffenen Aufgaben, direkt
+  abhakbar. Die Fußzeile nennt Aufgaben ohne Datum, spätere und die Listenzahl
 - Laufende Serien der längsten drei Habits
 - Kacheln für Suche und Einstellungen
+
+Alle Zahlen kommen aus `store.overview()`. „Fällig" heißt dort, dass ein Habit
+heute grundsätzlich ansteht – nicht, dass es noch in der Liste steht. Sonst
+schrumpfte der Nenner, sobald ein Wochenziel erfüllt ist, und aus „1 von 3"
+würde „0 von 2".
 
 **Suche**
 - Ein Feld über alles: Habits, Aufgaben samt Notizen, Listen und Einstellungen

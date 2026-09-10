@@ -38,7 +38,7 @@ function greeting() {
 /* ---------- Habits heute ---------- */
 
 function habitCard(o, key, isDark) {
-  const { due, done, pct, total } = o.habits;
+  const { due, done, pct, total, byInterval, resting } = o.habits;
 
   if (!total) {
     return card('Habits', [
@@ -46,48 +46,77 @@ function habitCard(o, key, isDark) {
       linkRow('Habits öffnen', () => go('habits')),
     ]);
   }
-  if (!due) {
-    return card('Habits heute', [
+
+  const parts = [];
+
+  if (due) {
+    const allDone = done === due;
+    parts.push(
       el('div', { class: 'home-hero' }, [
-        el('div', { class: 'home-hero-num', text: '🌙' }),
-        el('div', { class: 'home-hero-txt', text: 'Heute ist nichts eingeplant.' }),
+        el('div', { class: 'home-hero-num' }, [
+          String(done),
+          el('span', { class: 'home-hero-of', text: ` von ${due}` }),
+        ]),
+        el('div', {
+          class: `home-hero-txt${allDone ? ' good' : ''}`,
+          text: allDone ? 'Alles erledigt ✓' : `${pct} % geschafft`,
+        }),
       ]),
-      linkRow('Alle Habits', () => go('habits')),
-    ]);
+      el('div', { class: 'home-bar' }, [el('div', { class: 'home-bar-fill', style: `width:${pct}%` })]),
+    );
+
+    // Ein Punkt je fälliges Habit – zeigt auf einen Blick, was noch offen ist.
+    const dots = el('div', { class: 'home-dots' });
+    for (const h of S.habits().filter(x => S.isActiveOn(x, key))) {
+      const c = S.colorOf(h.color);
+      dots.append(el('span', {
+        class: `home-dot${S.isDoneOn(h, key) ? ' filled' : ''}`,
+        style: `--tint:${isDark ? c.dark : c.light}`,
+        title: `${h.emoji || ''} ${h.name}`.trim(),
+      }));
+    }
+    parts.push(dots);
+  } else {
+    parts.push(el('div', { class: 'home-hero' }, [
+      el('div', { class: 'home-hero-num', text: '🌙' }),
+      el('div', { class: 'home-hero-txt', text: 'Heute ist nichts eingeplant.' }),
+    ]));
   }
 
-  const allDone = done === due;
-  const bar = el('div', { class: 'home-bar' }, [
-    el('div', { class: 'home-bar-fill', style: `width:${pct}%` }),
-  ]);
-
-  // Ein Punkt je fälliges Habit – zeigt auf einen Blick, was noch offen ist,
-  // ohne die Namen zu wiederholen.
-  const dots = el('div', { class: 'home-dots' });
-  for (const h of S.habits().filter(x => S.showsOn(x, key))) {
-    const c = S.colorOf(h.color);
-    dots.append(el('span', {
-      class: `home-dot${S.isDoneOn(h, key) ? ' filled' : ''}`,
-      style: `--tint:${isDark ? c.dark : c.light}`,
-      title: `${h.emoji || ''} ${h.name}`.trim(),
-    }));
+  /* Aufschlüsselung nach Rhythmus: wie viele Habits es je Intervall gibt und
+     wie viele davon in der laufenden Periode schon erfüllt sind. */
+  if (byInterval.length) {
+    parts.push(el('div', { class: 'home-split' }, byInterval.map(g => {
+      const row = el('button', { class: 'home-split-row', type: 'button' }, [
+        el('span', { class: 'home-split-label', text: g.label }),
+        el('span', {
+          class: 'home-split-total',
+          text: g.total === 1 ? '1 Habit' : `${g.total} Habits`,
+        }),
+        g.due
+          ? el('span', {
+              class: `home-split-done${g.done === g.due ? ' good' : ''}`,
+              text: `${g.done}/${g.due}`,
+            })
+          : el('span', { class: 'home-split-done muted', text: 'frei' }),
+      ]);
+      row.addEventListener('click', () => { haptic(); go('habits', g.id); });
+      return row;
+    })));
   }
 
-  return card('Habits heute', [
-    el('div', { class: 'home-hero' }, [
-      el('div', { class: 'home-hero-num' }, [
-        String(done),
-        el('span', { class: 'home-hero-of', text: ` von ${due}` }),
-      ]),
-      el('div', {
-        class: `home-hero-txt${allDone ? ' good' : ''}`,
-        text: allDone ? 'Alles erledigt ✓' : `${pct} % geschafft`,
-      }),
-    ]),
-    bar,
-    dots,
-    linkRow(allDone ? 'Habits ansehen' : `${o.habits.open} offen — jetzt abhaken`, () => go('habits')),
-  ]);
+  parts.push(el('div', { class: 'home-foot' }, [
+    el('span', { text: `${total} ${total === 1 ? 'Habit' : 'Habits'} insgesamt` }),
+    resting ? el('span', { class: 'dot' }) : null,
+    resting ? el('span', { text: `${resting} heute nicht dran` }) : null,
+  ].filter(Boolean)));
+
+  parts.push(linkRow(
+    o.habits.open ? `${o.habits.open} offen — jetzt abhaken` : 'Habits ansehen',
+    () => go('habits'),
+  ));
+
+  return card('Habits heute', parts);
 }
 
 /* ---------- Aufgaben ---------- */
@@ -101,29 +130,51 @@ function todoCard(o, key) {
     ]);
   }
 
-  const rows = [];
+  /* Zuerst der Bestand auf einen Blick – wie bei den Habits die Hauptzahl
+     oben steht. Überfällig trägt die Warnfarbe, alles andere normale
+     Textfarbe. Darunter die Fälligkeiten im Einzelnen. */
+  const parts = [el('div', { class: 'home-stats top' }, [
+    stat(t.total, 'insgesamt'),
+    stat(t.open, 'offen'),
+    stat(t.done, 'erledigt'),
+    stat(t.overdue.length, 'überfällig', t.overdue.length ? 'danger' : ''),
+  ])];
+
+  const buckets = [];
   const add = (label, items, cls) => {
-    if (!items.length) return;
-    rows.push(bucketRow(label, items, cls, key));
+    if (items.length) buckets.push(bucketRow(label, items, cls, key));
   };
   add('Überfällig', t.overdue, 'danger');
   add('Heute', t.today, 'accent');
   add('Morgen', t.tomorrow, '');
   add('Diese Woche', t.thisWeek, '');
 
-  if (!rows.length) {
-    rows.push(el('div', { class: 'home-hero' }, [
-      el('div', { class: 'home-hero-num', text: t.open ? String(t.open) : '✓' }),
-      el('div', {
-        class: `home-hero-txt${t.open ? '' : ' good'}`,
-        text: t.open ? `offen, nichts terminiert` : 'Alles erledigt',
-      }),
-    ]));
+  if (buckets.length) parts.push(el('div', { class: 'home-buckets' }, buckets));
+  else if (t.open) {
+    parts.push(el('p', { class: 'home-empty', style: 'margin-top:12px', text: 'Nichts terminiert.' }));
   }
 
-  return card('Aufgaben', [
-    ...rows,
-    linkRow(`Alle ${t.open} offenen Aufgaben`, () => go('todos')),
+  const extras = [];
+  if (t.noDue) extras.push(`${t.noDue} ohne Datum`);
+  if (t.later) extras.push(`${t.later} später`);
+  if (t.lists) extras.push(`${t.lists} ${t.lists === 1 ? 'Liste' : 'Listen'}`);
+  if (extras.length) {
+    parts.push(el('div', { class: 'home-foot', text: extras.join(' · ') }));
+  }
+
+  parts.push(linkRow(
+    t.open ? `Alle ${t.open} offenen Aufgaben` : 'Aufgaben ansehen',
+    () => go('todos'),
+  ));
+
+  return card('Aufgaben', parts);
+}
+
+/** Eine Kennzahl mit Beschriftung darunter. */
+function stat(value, label, cls = '') {
+  return el('div', { class: `home-stat ${cls}`.trim() }, [
+    el('div', { class: 'home-stat-num', text: String(value) }),
+    el('div', { class: 'home-stat-label', text: label }),
   ]);
 }
 

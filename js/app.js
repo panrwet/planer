@@ -55,6 +55,8 @@ const SCREENS = {
 function show(screen, arg) {
   if (screen === 'detail') view.habitId = arg;
   if (screen === 'settings') view.settingId = arg || null;
+  // Von der Startseite aus kann eine Häufigkeits-Gruppe gezielt geöffnet werden
+  if (screen === 'habits' && arg) S.setGroupOpen(arg, true);
   if (screen === 'todos') {
     // Ohne Angabe die zuletzt offene Liste, sonst die erste vorhandene.
     const wanted = arg || view.listId;

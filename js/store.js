@@ -681,10 +681,30 @@ export function reorderTodos(listId, flat) {
  */
 export function overview(ref = today()) {
   const habitsAll = habits();
-  const due = habitsAll.filter(h => showsOn(h, ref));
+
+  /* Fällig heißt hier „steht heute grundsätzlich an" (isActiveOn), nicht
+     „wird noch angezeigt" (showsOn). Sonst schrumpft der Nenner, sobald ein
+     Wochenziel erfüllt ist, und aus „1 von 3" würde „0 von 2". */
+  const due = habitsAll.filter(h => isActiveOn(h, ref));
   const doneToday = due.filter(h => isDoneOn(h, ref));
 
-  const openTodos = data.todos.filter(t => !t.done);
+  // Aufschlüsselung nach Intervall – auch Intervalle ohne heutige Fälligkeit,
+  // damit sichtbar bleibt, wie viele Habits es überhaupt je Rhythmus gibt.
+  const byInterval = INTERVALS.map(iv => {
+    const mine = habitsAll.filter(h => h.sched === iv.id);
+    const dueNow = mine.filter(h => isActiveOn(h, ref));
+    return {
+      id: iv.id,
+      label: iv.label,
+      per: iv.per,
+      total: mine.length,
+      due: dueNow.length,
+      done: dueNow.filter(h => isDoneOn(h, ref)).length,
+    };
+  }).filter(g => g.total > 0);
+
+  const all = data.todos;
+  const openTodos = all.filter(t => !t.done);
   const withDue = openTodos.filter(t => t.due);
   const weekEnd = addDays(ref, 7);
 
@@ -703,15 +723,21 @@ export function overview(ref = today()) {
     habits: {
       due: due.length,
       done: doneToday.length,
-      open: due.filter(h => !isDoneOn(h, ref)).length,
+      open: due.length - doneToday.length,
       total: habitsAll.length,
       pct: due.length ? Math.round((doneToday.length / due.length) * 100) : 0,
+      byInterval,
+      // Habits, die heute nicht dran sind (nur an bestimmten Wochentagen)
+      resting: habitsAll.length - due.length,
     },
     todos: {
+      total: all.length,
       open: openTodos.length,
-      total: data.todos.length,
+      done: all.length - openTodos.length,
       overdue, today: todayDue, tomorrow, thisWeek,
       noDue: openTodos.filter(t => !t.due).length,
+      later: withDue.filter(t => t.due > weekEnd).length,
+      lists: lists().length,
     },
     streaks,
   };
