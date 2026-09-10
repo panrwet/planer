@@ -2,7 +2,7 @@
 
 import { $, el, svg, ICON, haptic } from './util.js';
 import { COLORS, colorOf, recentEmoji } from './store.js';
-import { searchEmoji, STARTER_EMOJI } from './emoji.js';
+import { searchEmoji, starterEmoji, emojiName } from './emoji.js';
 
 /* ---------- Toast ---------- */
 
@@ -127,85 +127,90 @@ export function textInput({ value = '', placeholder = '', maxlength = 60 }) {
 }
 
 /**
- * Emoji-Feld: Vorschau, freie Eingabe und zwei wischbare Zeilen –
- * Vorschläge passend zum eingegebenen Namen und die zuletzt benutzten.
- * `suggest(text)` wird vom Namensfeld bei jedem Tastendruck aufgerufen.
+ * Emoji-Wähler ohne eigene Zeile: das Kästchen sitzt links neben dem
+ * Namensfeld (siehe `nameWithEmoji`), darunter nur die beiden wischbaren
+ * Zeilen – Vorschläge zum eingegebenen Namen und die zuletzt benutzten.
+ * `suggest(text)` ruft das Namensfeld bei jedem Tastendruck auf.
  */
 export function emojiPicker(value) {
   const state = { value };
 
-  const preview = el('div', { class: 'emoji-preview', text: value || '·' });
-  const input = el('input', {
-    class: 'input', type: 'text', value, maxlength: 4, placeholder: 'oder frei eingeben',
-    style: 'text-align:center;font-size:20px',
+  // Das Kästchen ist gleichzeitig Anzeige und Eingabefeld: Tippen öffnet die
+  // Emoji-Tastatur des Systems, ein Tipp auf einen Vorschlag füllt es.
+  const box = el('input', {
+    class: 'emoji-box', type: 'text', value, maxlength: 4,
+    'aria-label': 'Emoji', inputmode: 'text', autocapitalize: 'off', autocorrect: 'off',
   });
 
-  const suggestRow = el('div', { class: 'emoji-row-scroll' });
-  const recentRow = el('div', { class: 'emoji-row-scroll' });
-  const suggestLabel = el('div', { class: 'emoji-row-label', text: 'Vorschläge' });
+  const suggestRow = el('div', { class: 'emoji-strip' });
+  const recentRow = el('div', { class: 'emoji-strip' });
+  const suggestLabel = el('div', { class: 'emoji-strip-label', text: 'Vorschläge' });
   const recentBlock = el('div', {}, [
-    el('div', { class: 'emoji-row-label', text: 'Zuletzt benutzt' }),
+    el('div', { class: 'emoji-strip-label', text: 'Zuletzt benutzt' }),
     recentRow,
   ]);
 
-  const pick = (e) => {
-    state.value = e;
-    preview.textContent = e || '·';
-    input.value = e;
-    paintPressed();
-    haptic();
-  };
-
-  const paintPressed = () => {
+  const paint = () => {
     for (const row of [suggestRow, recentRow]) {
       for (const b of row.children) b.setAttribute('aria-pressed', String(b.textContent === state.value));
     }
   };
 
-  const fill = (row, emojis) => {
-    row.replaceChildren(...emojis.map(e => {
-      const b = el('button', { type: 'button', class: 'emoji-pick', text: e, 'aria-pressed': String(e === state.value) });
+  const pick = (e) => {
+    state.value = e;
+    box.value = e;
+    paint();
+    haptic();
+  };
+
+  const fill = (row, list) => {
+    row.replaceChildren(...list.map(e => {
+      const b = el('button', {
+        type: 'button', class: 'emoji-pick', text: e,
+        title: emojiName(e), 'aria-label': emojiName(e) || e,
+        'aria-pressed': String(e === state.value),
+      });
       b.addEventListener('click', () => pick(e));
       return b;
     }));
   };
 
-  /** Vorschläge zum Namen; ohne Eingabe die Startauswahl. */
+  /* Die Suche läuft über ~1950 Einträge – bei jedem Tastendruck neu zu suchen
+     wäre auf dem Telefon spürbar, deshalb kurz entprellt. */
+  let timer = null;
   const suggest = (text) => {
-    const hits = searchEmoji(text, 20);
-    if (hits.length) {
-      suggestLabel.textContent = 'Passend zum Namen';
-      fill(suggestRow, hits);
-    } else {
-      suggestLabel.textContent = 'Vorschläge';
-      fill(suggestRow, STARTER_EMOJI);
-    }
-    paintPressed();
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const hits = searchEmoji(text, 24);
+      suggestLabel.textContent = hits.length ? 'Passend zum Namen' : 'Vorschläge';
+      fill(suggestRow, hits.length ? hits : starterEmoji(24));
+      paint();
+    }, 120);
   };
 
-  input.addEventListener('input', () => {
-    // Nur das erste Zeichen bzw. Zeichenpaar übernehmen – Emojis sind mehrteilig.
-    const v = [...input.value].slice(0, 2).join('');
-    state.value = v;
-    preview.textContent = v || '·';
-    paintPressed();
+  box.addEventListener('input', () => {
+    // Emojis sind mehrteilig; mehr als ein Zeichen ergibt hier keinen Sinn.
+    state.value = [...box.value].slice(0, 2).join('');
+    paint();
   });
 
   const recents = recentEmoji();
   fill(recentRow, recents);
   recentBlock.hidden = recents.length === 0;
-  suggest(value ? '' : '');
+  fill(suggestRow, starterEmoji(24));
 
   return {
-    node: el('div', {}, [
-      el('div', { class: 'emoji-row', style: 'margin-bottom:12px' }, [preview, input]),
-      suggestLabel,
-      suggestRow,
-      recentBlock,
-    ]),
+    box,                       // wird neben das Namensfeld gesetzt
+    node: el('div', {}, [suggestLabel, suggestRow, recentBlock]),
     suggest,
     get value() { return state.value; },
   };
+}
+
+/** Namensfeld mit dem Emoji-Kästchen davor – eine Zeile statt zwei. */
+export function nameWithEmoji(nameInput, picker) {
+  nameInput.addEventListener('input', () => picker.suggest(nameInput.value));
+  return el('div', { class: 'name-row' }, [picker.box, nameInput]);
 }
 
 export function colorPicker(value) {
@@ -319,10 +324,11 @@ export function switchBtn(on, onChange) {
 }
 
 /** Eine Zeile in den Einstellungen. */
-export function settingRow({ title, desc, control, onClick, danger }) {
+export function settingRow({ id, title, desc, control, onClick, danger }) {
   const node = el(onClick ? 'button' : 'div', {
     class: `setting${onClick ? ' tappable' : ''}${danger ? ' danger' : ''}`,
     type: onClick ? 'button' : null,
+    dataset: id ? { setting: id } : null,
   }, [
     el('div', { class: 'setting-body' }, [
       el('div', { class: 'setting-title', text: title }),

@@ -7,7 +7,7 @@ import * as S from './store.js';
 import { attachSortable, isDragging } from './drag.js';
 import {
   toast, openSheet, confirmSheet, openDropup, dropupItem, field, editorFields,
-  textInput, emojiPicker, colorPicker, checkButton, sectionToggle,
+  textInput, emojiPicker, nameWithEmoji, colorPicker, checkButton, sectionToggle,
 } from './ui.js';
 
 const MAX_DEPTH = 2;   // drei Ebenen: 0, 1, 2
@@ -161,12 +161,11 @@ export function openListEditor(id, afterSave) {
       const name = textInput({ value: l.name, placeholder: 'z. B. Einkaufen' });
       const emoji = emojiPicker(l.emoji);
       const color = colorPicker(l.color);
-      name.addEventListener('input', () => emoji.suggest(name.value));
       if (l.name) emoji.suggest(l.name);
 
       body.append(...editorFields({
-        name: field('Name', name),
-        emoji: field('Emoji', emoji.node),
+        name: field('Name', nameWithEmoji(name, emoji)),
+        emoji: emoji.node,
         color: field('Farbe', color.node),
       }));
       body.append(

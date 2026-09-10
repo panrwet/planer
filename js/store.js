@@ -673,6 +673,113 @@ export function reorderTodos(listId, flat) {
   save();
 }
 
+/* ---------- Überblick ---------- */
+
+/**
+ * Kennzahlen für die Startseite. Bewusst hier und nicht in der Ansicht, damit
+ * Startseite, Listen-Reiter und Suche dieselben Zahlen zeigen.
+ */
+export function overview(ref = today()) {
+  const habitsAll = habits();
+  const due = habitsAll.filter(h => showsOn(h, ref));
+  const doneToday = due.filter(h => isDoneOn(h, ref));
+
+  const openTodos = data.todos.filter(t => !t.done);
+  const withDue = openTodos.filter(t => t.due);
+  const weekEnd = addDays(ref, 7);
+
+  const overdue = withDue.filter(t => t.due < ref);
+  const todayDue = withDue.filter(t => t.due === ref);
+  const tomorrow = withDue.filter(t => t.due === addDays(ref, 1));
+  // „Diese Woche" meint die nächsten sieben Tage ohne heute und morgen.
+  const thisWeek = withDue.filter(t => t.due > addDays(ref, 1) && t.due <= weekEnd);
+
+  const streaks = habitsAll
+    .map(h => ({ habit: h, streak: currentStreak(h, ref) }))
+    .filter(s => s.streak > 0)
+    .sort((a, b) => b.streak - a.streak);
+
+  return {
+    habits: {
+      due: due.length,
+      done: doneToday.length,
+      open: due.filter(h => !isDoneOn(h, ref)).length,
+      total: habitsAll.length,
+      pct: due.length ? Math.round((doneToday.length / due.length) * 100) : 0,
+    },
+    todos: {
+      open: openTodos.length,
+      total: data.todos.length,
+      overdue, today: todayDue, tomorrow, thisWeek,
+      noDue: openTodos.filter(t => !t.due).length,
+    },
+    streaks,
+  };
+}
+
+/* ---------- Suche ---------- */
+
+function foldText(text) {
+  return String(text).toLowerCase()
+    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss');
+}
+
+/**
+ * Freie Suche über alles. Jeder Bereich liefert Treffer in derselben Form
+ * `{ kind, id, title, subtitle, emoji, color }` – ein neuer Bereich braucht
+ * hier nur einen weiteren Block, die Ansicht bleibt unverändert.
+ */
+export function search(query, { settingsEntries = [] } = {}) {
+  const q = foldText(query).trim();
+  if (q.length < 2) return [];
+  const words = q.split(/\s+/).filter(Boolean);
+  const matches = (...fields) => {
+    const hay = foldText(fields.filter(Boolean).join(' '));
+    return words.every(w => hay.includes(w));
+  };
+
+  const out = [];
+
+  for (const h of habits()) {
+    if (!matches(h.name, unitWords(h).many)) continue;
+    const iv = intervalOf(h);
+    out.push({
+      kind: 'habit', id: h.id, title: h.name, emoji: h.emoji, color: h.color,
+      subtitle: `Habit · ${num(h.target)} ${unitWords(h).many} ${iv.per}`,
+    });
+  }
+
+  for (const l of lists()) {
+    if (!matches(l.name)) continue;
+    const open = todosOf(l.id).filter(t => !t.done).length;
+    out.push({
+      kind: 'list', id: l.id, title: l.name, emoji: l.emoji, color: l.color,
+      subtitle: `Liste · ${open} offen`,
+    });
+  }
+
+  for (const t of data.todos) {
+    if (!matches(t.title, t.note)) continue;
+    const l = list(t.listId);
+    out.push({
+      kind: 'todo', id: t.id, listId: t.listId, title: t.title, color: t.color || l?.color,
+      subtitle: `Aufgabe in ${l?.name || '?'}${t.done ? ' · erledigt' : ''}`,
+      done: t.done,
+    });
+  }
+
+  for (const e of settingsEntries) {
+    if (!matches(e.title, e.keywords)) continue;
+    out.push({ kind: 'setting', id: e.id, title: e.title, subtitle: `Einstellung · ${e.group}` });
+  }
+
+  return out;
+}
+
+function num(n) {
+  return String(Math.round(n * 100) / 100).replace('.', ',');
+}
+
 /* ---------- Backup ---------- */
 
 export function exportJSON() {

@@ -9,6 +9,39 @@ import { group, settingRow, segmented, switchBtn, toast, openSheet, confirmSheet
 let applyAll = () => {};
 export function bindApply(fn) { applyAll = fn; }
 
+/**
+ * Was die Suche in den Einstellungen finden soll. Bewusst als Liste neben der
+ * Ansicht: wer eine Einstellung ergänzt, trägt sie hier ein und sie ist sofort
+ * auffindbar.
+ */
+export const SETTINGS_INDEX = [
+  { id: 'doneHabits', group: 'Habits', title: 'Abgehakte Habits',
+    keywords: 'ausblenden ausgrauen verschwinden erledigt sichtbar' },
+  { id: 'doneTodos', group: 'Todos', title: 'Erledigte Aufgaben',
+    keywords: 'ausblenden anzeigen durchgestrichen erledigt' },
+  { id: 'rowSize', group: 'Darstellung', title: 'Größe der Zeilen',
+    keywords: 'klein mittel groß höhe kompakt schrift' },
+  { id: 'theme', group: 'Darstellung', title: 'Design',
+    keywords: 'hell dunkel system dark mode farben aussehen' },
+  { id: 'dayStart', group: 'Tag', title: 'Tageswechsel um 3 Uhr',
+    keywords: 'mitternacht nacht tag wechsel vortag spät' },
+  { id: 'export', group: 'Backup', title: 'Daten sichern',
+    keywords: 'backup export teilen datei speichern kopieren icloud' },
+  { id: 'import', group: 'Backup', title: 'Daten wiederherstellen',
+    keywords: 'backup import einlesen zurückholen datei' },
+  { id: 'reset', group: 'Zurücksetzen', title: 'Alle Daten löschen',
+    keywords: 'löschen zurücksetzen leeren neu anfangen' },
+];
+
+/** Eine Einstellung kurz hervorheben – z. B. wenn die Suche dorthin führt. */
+export function flashSetting(id) {
+  const node = document.querySelector(`[data-setting="${id}"]`);
+  if (!node) return;
+  node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  node.classList.add('flash');
+  setTimeout(() => node.classList.remove('flash'), 1600);
+}
+
 export function renderSettings() {
   const set = S.settings();
   const scroll = $('#settings-scroll');
@@ -18,6 +51,7 @@ export function renderSettings() {
   scroll.replaceChildren(
     group('Habits', [
       settingRow({
+        id: 'doneHabits',
         title: 'Abgehakte Habits',
         desc: set.doneHabits === 'hide'
           ? 'Verschwinden aus der Liste und stehen unter „Erledigt“.'
@@ -31,6 +65,7 @@ export function renderSettings() {
 
     group('Todos', [
       settingRow({
+        id: 'doneTodos',
         title: 'Erledigte Aufgaben',
         desc: set.doneTodos === 'hide'
           ? 'Verschwinden aus der Liste und stehen unter „Erledigt“.'
@@ -44,6 +79,7 @@ export function renderSettings() {
 
     group('Darstellung', [
       settingRow({
+        id: 'rowSize',
         title: 'Größe der Zeilen',
         desc: 'Gilt für Habits und Todos.',
         control: segmented(
@@ -52,6 +88,7 @@ export function renderSettings() {
         ),
       }),
       settingRow({
+        id: 'theme',
         title: 'Design',
         desc: 'Standard folgt der Einstellung des iPhones.',
         control: segmented(
@@ -63,6 +100,7 @@ export function renderSettings() {
 
     group('Tag', [
       settingRow({
+        id: 'dayStart',
         title: 'Tageswechsel um 3 Uhr',
         desc: 'Was du nach Mitternacht abhakst, zählt noch zum Vortag.',
         control: switchBtn(set.dayStart === 3, on => put('dayStart', on ? 3 : 0)),
@@ -71,12 +109,14 @@ export function renderSettings() {
 
     group('Backup', [
       settingRow({
+        id: 'export',
         title: 'Daten sichern',
         desc: 'Als Datei teilen oder laden – am besten regelmäßig.',
         control: chevron(),
         onClick: exportData,
       }),
       settingRow({
+        id: 'import',
         title: 'Daten wiederherstellen',
         desc: 'Aus einer zuvor gesicherten Datei einlesen.',
         control: chevron(),
@@ -86,6 +126,7 @@ export function renderSettings() {
 
     group('Zurücksetzen', [
       settingRow({
+        id: 'reset',
         title: 'Alle Daten löschen',
         desc: 'Entfernt Habits, Listen, Aufgaben und den gesamten Verlauf.',
         danger: true,

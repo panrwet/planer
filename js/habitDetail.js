@@ -48,7 +48,6 @@ function hero(h, words) {
     el('div', {}, [
       el('h2', { text: h.name }),
       el('div', { class: 'goal', text: bits.join(' · ') }),
-      h.note ? el('div', { class: 'goal', style: 'margin-top:5px', text: h.note }) : null,
     ]),
   ]);
 }

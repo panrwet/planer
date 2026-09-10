@@ -574,6 +574,179 @@ body.is-dragging .scroll { overflow: hidden; }
 }
 
 /* ==========================================================================
+   Startseite
+   ========================================================================== */
+.home-card { padding: 14px 16px; }
+.home-card > h3 { margin-bottom: 10px; }
+
+.home-hero { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.home-hero-num {
+  font-size: 30px; font-weight: 700;
+  letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+.home-hero-of { font-size: 16px; font-weight: 600; color: var(--text-3); }
+.home-hero-txt { font-size: 13.5px; color: var(--text-3); font-weight: 550; }
+.home-hero-txt.good { color: var(--accent); }
+
+.home-bar {
+  height: 7px;
+  margin-top: 11px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.home-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width .35s cubic-bezier(.2, .8, .3, 1);
+}
+
+/* Ein Punkt je fälliges Habit – gefüllt heißt erledigt. */
+.home-dots { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 11px; }
+.home-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--tint);
+  opacity: .55;
+}
+.home-dot.filled { background: var(--tint); opacity: 1; }
+
+.home-bucket {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%;
+  padding: 9px 0;
+  text-align: left;
+  border-top: 1px solid var(--border);
+}
+.home-card > .home-bucket:first-of-type { border-top: 0; padding-top: 2px; }
+.home-bucket-label { flex: none; font-size: 14.5px; font-weight: 600; }
+.home-bucket-names {
+  flex: 1; min-width: 0;
+  font-size: 12.5px; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-bucket-count {
+  flex: none;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12.5px; font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.home-bucket.danger .home-bucket-label { color: var(--danger); }
+.home-bucket.danger .home-bucket-count { background: var(--danger-soft); color: var(--danger); }
+.home-bucket.accent .home-bucket-count { background: var(--accent-soft); color: var(--accent); }
+.home-bucket:active { opacity: .55; }
+
+.home-streak {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 8px 0;
+  text-align: left;
+}
+.home-streak + .home-streak { border-top: 1px solid var(--border); }
+.home-streak-emoji {
+  flex: none;
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 9px;
+  font-size: 16px;
+  background: color-mix(in oklab, var(--tint) 14%, var(--surface));
+}
+.home-streak-name {
+  flex: 1; min-width: 0;
+  font-size: 14.5px; font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-streak-num { flex: none; font-size: 13.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.home-streak:active { opacity: .55; }
+
+.home-link {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 14px; font-weight: 600;
+  text-align: left;
+}
+.home-link-chev { display: grid; place-items: center; opacity: .7; }
+.home-link:active { opacity: .5; }
+
+.home-empty { font-size: 13.5px; color: var(--text-3); line-height: 1.45; }
+
+.home-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px; }
+.home-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  text-align: left;
+}
+.home-tile-icon { font-size: 21px; line-height: 1.2; margin-bottom: 4px; }
+.home-tile-label { font-size: 15px; font-weight: 650; }
+.home-tile-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.35; }
+.home-tile:active { background: var(--surface-2); transform: scale(.98); }
+
+/* ==========================================================================
+   Suche
+   ========================================================================== */
+.search-field { position: relative; margin: 6px 0 4px; }
+.search-field .input { padding-left: 38px; padding-right: 38px; }
+.search-icon {
+  position: absolute;
+  left: 12px; top: 50%;
+  transform: translateY(-50%);
+  width: 18px; height: 18px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.search-clear {
+  position: absolute;
+  right: 6px; top: 50%;
+  transform: translateY(-50%);
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  color: var(--text-3);
+}
+.search-clear svg { width: 16px; height: 16px; }
+.search-clear:active { background: var(--surface-2); }
+
+.search-group + .search-group { margin-top: 18px; }
+.search-group-label {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 4px 7px;
+  font-size: 12px; font-weight: 650;
+  letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-3);
+}
+.row-title mark {
+  background: color-mix(in oklab, var(--accent) 24%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+/* Ziel einer Suche kurz hervorheben. */
+.setting.flash {
+  animation: flash 1.6s ease-out;
+}
+@keyframes flash {
+  0%, 100% { background: transparent; }
+  15%, 55% { background: var(--accent-soft); }
+}
+
+/* ==========================================================================
    Listen-Leiste (nur im Todos-Bereich, direkt über der Tab-Leiste)
    ========================================================================== */
 .listbar {
@@ -768,23 +941,23 @@ body.is-dragging .scroll { overflow: hidden; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: 16px calc(var(--safe-r) + 16px) 22px calc(var(--safe-l) + 16px);
+  padding: 14px calc(var(--safe-r) + 16px) 20px calc(var(--safe-l) + 16px);
 }
 
 /* ---- Formularbausteine ---- */
-.field { margin-bottom: 18px; }
+.field { margin-bottom: 14px; }
 .field > label, .field-label {
   display: block;
-  font-size: 12px; font-weight: 650;
+  font-size: 11.5px; font-weight: 650;
   letter-spacing: .04em; text-transform: uppercase;
   color: var(--text-3);
-  margin-bottom: 7px;
+  margin-bottom: 6px;
 }
-.field-hint { font-size: 12px; color: var(--text-3); margin-top: 6px; line-height: 1.45; }
+.field-hint { font-size: 12px; color: var(--text-3); margin-top: 5px; line-height: 1.4; }
 
 .input, textarea.input, select.input {
   width: 100%;
-  padding: 12px 13px;
+  padding: 11px 13px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -794,7 +967,7 @@ body.is-dragging .scroll { overflow: hidden; }
   appearance: none;
 }
 .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-textarea.input { min-height: 76px; resize: none; line-height: 1.45; }
+textarea.input { min-height: 64px; resize: none; line-height: 1.45; }
 select.input {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8b95' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -804,30 +977,38 @@ select.input {
 }
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-.emoji-row { display: flex; align-items: center; gap: 10px; }
-.emoji-preview {
-  width: 52px; height: 52px; flex: none;
-  display: grid; place-items: center;
-  font-size: 26px;
+/* Emoji-Kästchen sitzt links vor dem Namensfeld – das spart im Formular eine
+   ganze Zeile samt Beschriftung. */
+.name-row { display: flex; gap: 9px; }
+.emoji-box {
+  flex: none;
+  width: 52px;
+  padding: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 13px;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 24px;
+  line-height: 1;
+  -webkit-appearance: none;
+  appearance: none;
 }
+.emoji-box:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.name-row .input { flex: 1; min-width: 0; }
 
-.emoji-row-label {
-  font-size: 11.5px;
+.emoji-strip-label {
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-3);
-  margin: 0 0 5px 2px;
+  margin: 10px 0 5px 2px;
 }
 
-/* Eine Zeile, die man seitlich wischt – zeigt viele Emojis ohne den Dialog
-   in die Länge zu ziehen. Die Ränder werden weich ausgeblendet, damit man
-   sieht, dass es weitergeht. */
-.emoji-row-scroll {
+/* Wischbare Zeile: zeigt viele Emojis, ohne den Dialog zu verlängern. Die
+   Ränder blenden weich aus, damit erkennbar ist, dass es weitergeht. */
+.emoji-strip {
   display: flex;
   gap: 6px;
-  margin: 0 -16px 14px;
+  margin: 0 -16px;
   padding: 2px 16px 4px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -836,15 +1017,15 @@ select.input {
   mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
 }
-.emoji-row-scroll::-webkit-scrollbar { display: none; }
-.emoji-row-scroll:empty { display: none; }
+.emoji-strip::-webkit-scrollbar { display: none; }
+.emoji-strip:empty { display: none; }
 
 .emoji-pick {
   flex: none;
-  width: 42px; height: 42px;
+  width: 40px; height: 40px;
   display: grid; place-items: center;
-  font-size: 21px;
-  border-radius: 11px;
+  font-size: 20px;
+  border-radius: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
 }
@@ -859,7 +1040,7 @@ select.input {
 .swatches {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
-  gap: 10px 8px;
+  gap: 9px 8px;
   justify-items: center;
 }
 .swatch {
@@ -891,7 +1072,7 @@ select.input {
 
 .chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .chip {
-  padding: 8px 13px;
+  padding: 7px 12px;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -910,7 +1091,7 @@ select.input {
   overflow: hidden;
 }
 .stepper button {
-  width: 46px; height: 46px;
+  width: 44px; height: 44px;
   display: grid; place-items: center;
   color: var(--accent);
   font-size: 22px; font-weight: 500;
@@ -919,7 +1100,7 @@ select.input {
 .stepper button[disabled] { color: var(--text-3); opacity: .45; }
 .stepper input {
   flex: 1; min-width: 0;
-  height: 46px;
+  height: 44px;
   border: 0;
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
@@ -937,7 +1118,7 @@ select.input {
 .btn {
   display: block;
   width: 100%;
-  padding: 13px;
+  padding: 12px;
   border-radius: 13px;
   background: var(--accent);
   color: #fff;

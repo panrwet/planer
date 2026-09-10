@@ -1,215 +1,13 @@
-/* Emoji-Datenbank mit deutschen Stichwörtern.
-   Bewusst als handgepflegte Liste statt als vollständiger Unicode-Datensatz:
-   die App soll ohne Build und ohne Nachladen laufen, und für Habits und
-   Aufgaben zählt Treffsicherheit mehr als Vollständigkeit.
+/* Emoji-Suche über die vollständige Bibliothek.
+   Die Daten stecken in emoji-data.js und stammen aus den offiziellen
+   CLDR-Annotationen von Unicode – deutsche Namen und Suchbegriffe.
 
-   Erster Begriff je Eintrag ist der Hauptname, danach Synonyme. Kleingeschrieben
-   und ohne Umlautvarianten – gesucht wird über eine normalisierte Form. */
+   Der Index wird erst beim ersten Suchen gebaut, damit der App-Start nicht
+   auf ~1950 Einträge warten muss. */
 
-const DB = [
-  // --- Trinken & Essen ---
-  ['💧', 'wasser trinken tropfen flüssigkeit hydration'],
-  ['🚰', 'wasser trinkwasser hahn leitung'],
-  ['🥛', 'milch glas trinken kalzium'],
-  ['☕️', 'kaffee koffein espresso tasse heiß'],
-  ['🍵', 'tee grüntee tasse matcha'],
-  ['🧉', 'mate tee'],
-  ['🥤', 'becher limonade trinken softdrink'],
-  ['🍺', 'bier alkohol feierabend'],
-  ['🍷', 'wein alkohol rotwein'],
-  ['🥗', 'salat gesund gemüse essen ernährung'],
-  ['🥦', 'brokkoli gemüse gesund'],
-  ['🥕', 'karotte möhre gemüse'],
-  ['🍎', 'apfel obst frucht gesund'],
-  ['🍌', 'banane obst frucht kalium'],
-  ['🍓', 'erdbeere obst frucht'],
-  ['🫐', 'blaubeere beere obst'],
-  ['🥑', 'avocado fett gesund'],
-  ['🍳', 'kochen ei frühstück pfanne'],
-  ['🥘', 'kochen essen pfanne mahlzeit'],
-  ['🍲', 'suppe eintopf kochen essen'],
-  ['🥣', 'müsli schüssel frühstück haferflocken porridge'],
-  ['🍞', 'brot backen brötchen'],
-  ['🧀', 'käse'],
-  ['🍕', 'pizza essen'],
-  ['🍫', 'schokolade süßigkeit naschen zucker'],
-  ['🍬', 'süßigkeit bonbon zucker naschen'],
-  ['🚭', 'rauchen nichtrauchen aufhören zigarette nikotin'],
-  ['🧂', 'salz gewürz'],
-  ['💊', 'tablette vitamine medikament pille nahrungsergänzung supplement'],
-  ['🩹', 'pflaster wunde'],
-  ['🧴', 'creme lotion sonnencreme pflege hautpflege'],
+import { RAW, PREFERRED_COUNT, FLAG_START } from './emoji-data.js';
 
-  // --- Sport & Bewegung ---
-  ['🏃', 'laufen joggen rennen sport cardio lauf'],
-  ['🚶', 'gehen spazieren schritte spaziergang'],
-  ['🥾', 'wandern wanderung berg'],
-  ['🚴', 'radfahren fahrrad rad velo bike'],
-  ['🏊', 'schwimmen schwimmbad bahnen'],
-  ['🏋️', 'krafttraining gewichte hantel fitness gym stemmen'],
-  ['💪', 'muskeln kraft training stark fitness'],
-  ['🤸', 'turnen gymnastik dehnen beweglichkeit'],
-  ['🧘', 'yoga meditation meditieren entspannen achtsamkeit atmen ruhe'],
-  ['🤾', 'handball ballsport'],
-  ['⚽️', 'fußball ball sport kicken'],
-  ['🏀', 'basketball ball korb'],
-  ['🎾', 'tennis ball schläger'],
-  ['🏓', 'tischtennis pingpong'],
-  ['🏸', 'badminton federball'],
-  ['🥊', 'boxen kampfsport handschuh'],
-  ['🥋', 'judo karate kampfsport'],
-  ['⛰️', 'berg klettern wandern gipfel'],
-  ['🧗', 'klettern bouldern kletterhalle'],
-  ['⛷️', 'ski skifahren winter'],
-  ['🏂', 'snowboard winter'],
-  ['⛸️', 'eislaufen schlittschuh'],
-  ['🛹', 'skateboard'],
-  ['🤺', 'fechten'],
-  ['🚣', 'rudern boot'],
-  ['🧎', 'knien dehnen stretching'],
-  ['👟', 'schuhe sport laufschuhe turnschuh'],
-  ['⚖️', 'wiegen gewicht waage abnehmen'],
-  ['🩺', 'gesundheit arzt untersuchung blutdruck'],
-
-  // --- Lernen & Arbeit ---
-  ['📖', 'lesen buch lektüre seiten schmökern'],
-  ['📚', 'bücher lernen studieren bibliothek studium'],
-  ['✍️', 'schreiben notieren tagebuch journal aufschreiben'],
-  ['📝', 'notiz schreiben aufgabe zettel eintragen'],
-  ['🗒️', 'notizen block liste'],
-  ['📓', 'notizbuch tagebuch heft'],
-  ['🧠', 'gehirn denken lernen konzentration gedächtnis kopf'],
-  ['🎓', 'studium abschluss lernen uni schule prüfung'],
-  ['🔬', 'forschung labor wissenschaft'],
-  ['🧮', 'rechnen mathe zahlen'],
-  ['🗣️', 'sprechen sprache reden vokabeln aussprache'],
-  ['🌍', 'sprache welt reisen erde global'],
-  ['💻', 'computer arbeiten programmieren laptop coden büro'],
-  ['⌨️', 'tippen tastatur schreiben'],
-  ['🖥️', 'bildschirm computer arbeitsplatz'],
-  ['📱', 'handy smartphone bildschirmzeit telefon'],
-  ['📵', 'handy handyfrei offline bildschirmzeit digital detox'],
-  ['💼', 'arbeit büro job beruf aktentasche'],
-  ['📅', 'kalender termin planen woche datum'],
-  ['⏰', 'wecker aufstehen früh uhrzeit alarm'],
-  ['⏱️', 'stoppuhr zeit messen timer'],
-  ['📈', 'wachstum fortschritt statistik steigen erfolg'],
-  ['📊', 'statistik auswertung diagramm zahlen'],
-  ['💰', 'geld sparen finanzen budget'],
-  ['💳', 'karte bezahlen rechnung zahlung'],
-  ['🧾', 'rechnung belege buchhaltung steuer quittung'],
-  ['📧', 'email mail posteingang schreiben nachricht'],
-  ['✉️', 'brief post schreiben mail'],
-  ['📞', 'telefon anrufen anruf hörer'],
-  ['📦', 'paket versand päckchen liefern'],
-  ['🖊️', 'stift schreiben unterschreiben'],
-  ['📌', 'pinnen wichtig merken notiz'],
-  ['🔑', 'schlüssel zugang wichtig'],
-  ['🗂️', 'ordner ablage sortieren dokumente'],
-  ['📁', 'ordner datei ablage'],
-
-  // --- Haushalt & Alltag ---
-  ['🧹', 'putzen aufräumen kehren saubermachen haushalt'],
-  ['🧽', 'putzen schwamm spülen reinigen'],
-  ['🧼', 'seife waschen händewaschen hygiene'],
-  ['🪣', 'eimer putzen wischen'],
-  ['🧺', 'wäsche waschen wäschekorb'],
-  ['👕', 'wäsche kleidung shirt anziehen'],
-  ['🛏️', 'bett schlafen bettmachen'],
-  ['🚿', 'duschen dusche waschen'],
-  ['🛁', 'baden badewanne entspannen'],
-  ['🦷', 'zähne zähneputzen zahnarzt zahnseide'],
-  ['🪥', 'zahnbürste zähneputzen zähne'],
-  ['🚽', 'toilette bad wc'],
-  ['🍽️', 'geschirr abwasch spülen essen teller'],
-  ['🛒', 'einkaufen einkauf supermarkt besorgen wagen'],
-  ['🧻', 'papier haushalt toilettenpapier'],
-  ['🗑️', 'müll wegwerfen abfall entsorgen'],
-  ['♻️', 'recycling müll trennen umwelt'],
-  ['🔧', 'reparieren werkzeug schrauben basteln'],
-  ['🔨', 'hammer reparieren handwerk bauen'],
-  ['🪛', 'schraubendreher reparieren montieren'],
-  ['🧰', 'werkzeug reparieren kasten'],
-  ['🪴', 'pflanze gießen blume topfpflanze'],
-  ['🌱', 'pflanze wachsen setzling garten neu'],
-  ['🌿', 'kraut pflanze grün natur'],
-  ['🌻', 'blume sonnenblume garten'],
-  ['🚗', 'auto fahren tanken werkstatt wagen'],
-  ['⛽️', 'tanken benzin auto'],
-  ['🏠', 'haus zuhause wohnung heim'],
-  ['🐕', 'hund gassi tier haustier spaziergang'],
-  ['🐈', 'katze tier haustier'],
-  ['🐾', 'tier haustier pfote füttern'],
-
-  // --- Schlaf, Stimmung, Gesundheit ---
-  ['😴', 'schlafen schlaf müde bett früh ins bett'],
-  ['🌙', 'nacht abend schlafen mond'],
-  ['☀️', 'sonne morgen tag aufstehen licht'],
-  ['🌅', 'sonnenaufgang morgen früh aufstehen'],
-  ['🌄', 'morgen sonnenaufgang berge'],
-  ['🛌', 'schlafen bett ausruhen'],
-  ['😊', 'freude lächeln stimmung gut dankbar'],
-  ['🙏', 'dankbarkeit danke beten hoffen'],
-  ['❤️', 'liebe herz gesundheit wichtig'],
-  ['🫀', 'herz puls gesundheit kreislauf'],
-  ['🧊', 'kalt eis kaltduschen eisbad'],
-  ['🌬️', 'atmen atemübung luft frisch lüften'],
-  ['🪟', 'lüften fenster frische luft'],
-  ['🎯', 'ziel fokus treffen vorsatz'],
-  ['✅', 'erledigt haken fertig abhaken'],
-  ['⭐️', 'stern wichtig favorit standard'],
-  ['🔥', 'streak feuer serie motivation'],
-  ['🏆', 'pokal erfolg gewinnen ziel erreicht'],
-  ['🎉', 'feiern party erfolg glückwunsch'],
-  ['🧿', 'schutz glück'],
-
-  // --- Hobby & Freizeit ---
-  ['🎸', 'gitarre musik üben instrument'],
-  ['🎹', 'klavier piano musik üben instrument'],
-  ['🎻', 'geige violine musik instrument'],
-  ['🥁', 'schlagzeug trommel musik'],
-  ['🎤', 'singen gesang mikrofon musik'],
-  ['🎧', 'musik hören kopfhörer podcast hörbuch'],
-  ['🎵', 'musik lied ton'],
-  ['🎨', 'malen kunst zeichnen kreativ'],
-  ['🖌️', 'malen pinsel kunst'],
-  ['✂️', 'basteln schneiden schere'],
-  ['🧶', 'stricken wolle häkeln handarbeit'],
-  ['🧵', 'nähen faden handarbeit'],
-  ['📷', 'fotografieren foto kamera bilder'],
-  ['🎬', 'film kino video drehen'],
-  ['📺', 'fernsehen serie tv bildschirmzeit'],
-  ['🎮', 'spielen gaming videospiel konsole'],
-  ['🎲', 'spiel würfel brettspiel'],
-  ['♟️', 'schach spiel strategie'],
-  ['🧩', 'puzzle rätsel knobeln'],
-  ['🃏', 'karten spiel'],
-  ['✈️', 'reisen flug urlaub fliegen'],
-  ['🧳', 'koffer reise packen urlaub'],
-  ['🏖️', 'strand urlaub meer entspannen'],
-  ['🗺️', 'karte reisen planen route'],
-  ['🎁', 'geschenk besorgen geburtstag präsent'],
-  ['🎂', 'geburtstag kuchen torte feiern'],
-  ['🕯️', 'kerze ruhe entspannen'],
-  ['🛠️', 'projekt basteln werkeln'],
-  ['🌊', 'meer wellen wasser surfen'],
-  ['🏕️', 'camping zelt natur'],
-  ['🚂', 'zug bahn fahren reisen'],
-  ['🚌', 'bus fahren öffentlich'],
-  ['🛵', 'roller fahren motor'],
-
-  // --- Menschen & Soziales ---
-  ['👨‍👩‍👧', 'familie kinder eltern'],
-  ['👶', 'baby kind'],
-  ['🧑‍🤝‍🧑', 'freunde treffen soziales menschen'],
-  ['💬', 'gespräch reden chat nachricht kontakt'],
-  ['🤝', 'treffen verabreden handschlag zusammen'],
-  ['🎙️', 'podcast aufnehmen sprechen'],
-  ['👥', 'gruppe team menschen'],
-  ['🫂', 'umarmung nähe zusammen'],
-];
-
-/** Sucht ohne Rücksicht auf Umlaute, Groß-/Kleinschreibung und Endungen. */
+/** Vergleichsform: ohne Umlaute, Kleinbuchstaben, nur Buchstaben und Ziffern. */
 function normalize(text) {
   return String(text)
     .toLowerCase()
@@ -219,50 +17,165 @@ function normalize(text) {
     .trim();
 }
 
-/* Vorberechnet, damit die Suche bei jedem Tastendruck billig bleibt. */
-const ENTRIES = DB.map(([emoji, words]) => {
-  const norm = normalize(words);
-  return { emoji, words: norm, tokens: norm.split(' ') };
-});
-
-export const ALL_EMOJI = ENTRIES.map(e => e.emoji);
-
 /**
- * Emojis, die zum eingegebenen Text passen.
- * Bewertet wird pro Wort des Textes: genauer Treffer > Wortanfang >
- * irgendwo enthalten. Der Rang im ersten Stichwort zählt zusätzlich, damit
- * „wasser" eher 💧 als 🚰 liefert.
+ * Deutsche Wörter treten in Beugungen und Zusammensetzungen auf: gesucht wird
+ * „Zähne putzen", im Datensatz steht „Zahnbürste" und „putzen". Deshalb wird zu
+ * jedem Suchwort eine kurze Liste von Stämmen gebildet, die als Wortanfang
+ * gelten dürfen.
  */
-export function searchEmoji(text, limit = 24) {
-  const query = normalize(text);
-  if (!query) return [];
-  const parts = query.split(' ').filter(w => w.length >= 2);
-  if (!parts.length) return [];
-
-  const scored = [];
-  for (const entry of ENTRIES) {
-    let score = 0;
-    for (const part of parts) {
-      let best = 0;
-      for (let i = 0; i < entry.tokens.length; i++) {
-        const token = entry.tokens[i];
-        if (token === part) best = Math.max(best, 100 - i);
-        else if (token.startsWith(part)) best = Math.max(best, 70 - i);
-        else if (part.length >= 5 && token.includes(part)) best = Math.max(best, 45 - i);
-        // Auch der umgekehrte Fall: getippt „laufband", Stichwort „laufen"
-        else if (part.length >= 5 && part.startsWith(token) && token.length >= 4) best = Math.max(best, 40 - i);
+function stems(word) {
+  const out = [word];
+  // Partizip-Präfix: „gelesen" soll „lesen" finden
+  if (word.length >= 6 && word.startsWith('ge')) out.push(word.slice(2));
+  for (const base of [...out]) {
+    for (const suffix of ['en', 'er', 'es', 'e', 'n', 's']) {
+      if (base.length - suffix.length >= 3 && base.endsWith(suffix)) {
+        out.push(base.slice(0, -suffix.length));
       }
-      score += best;
     }
-    if (score > 0) scored.push({ emoji: entry.emoji, score });
   }
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit).map(s => s.emoji);
+  return [...new Set(out)];
 }
 
-/** Startvorschläge, wenn noch nichts eingetippt wurde. */
-export const STARTER_EMOJI = [
-  '⭐️', '💧', '🏃', '📖', '🧘', '💪', '😴', '🥗', '💊', '🎯',
-  '🧹', '✍️', '📚', '🎸', '☀️', '🚴', '🧠', '🦷', '💻', '🪴',
-];
+let index = null;
+
+function build() {
+  if (index) return index;
+  index = RAW.split('\n').map((line, i) => {
+    const [emoji, name, keywords] = line.split('\t');
+    const normName = normalize(name);
+    const words = (keywords || '').split('|').filter(Boolean);
+    return {
+      emoji,
+      name,
+      normName,
+      nameTokens: normName.split(' '),
+      // Alle Stichwörter als Tokens, doppelte entfernt
+      tokens: [...new Set(words.flatMap(w => normalize(w).split(' ')).filter(w => w.length > 1))],
+      preferred: i < PREFERRED_COUNT,
+      flag: FLAG_START >= 0 && i >= FLAG_START,
+    };
+  });
+  return index;
+}
+
+/** Index im Leerlauf vorbereiten, damit der erste Editor sofort Vorschläge hat. */
+export function warmUp() {
+  const run = () => build();
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2000 });
+  else setTimeout(run, 400);
+}
+
+export function allEmoji() {
+  return build().map(e => e.emoji);
+}
+
+/** Name eines Emojis, für Vorlesehilfen und Beschriftungen. */
+export function emojiName(emoji) {
+  return build().find(e => e.emoji === emoji)?.name || '';
+}
+
+/**
+ * Bewertet einen Eintrag gegen ein einzelnes Suchwort.
+ * Der Name wiegt schwerer als ein Stichwort, ein ganzes Wort schwerer als ein
+ * Wortanfang, und ein Stamm-Treffer zählt am wenigsten – so landen exakte
+ * Treffer zuverlässig vorn.
+ */
+function scoreWord(entry, word) {
+  if (entry.normName === word) return 100;
+  if (entry.normName.startsWith(word + ' ')) return 88;
+
+  let best = 0;
+  for (const t of entry.nameTokens) {
+    if (t === word) { best = Math.max(best, 82); continue; }
+    if (t.startsWith(word)) best = Math.max(best, 66);
+  }
+  for (const t of entry.tokens) {
+    if (t === word) { best = Math.max(best, 72); continue; }
+    if (t.startsWith(word)) best = Math.max(best, 54);
+  }
+  if (best) return best;
+
+  // Erst wenn nichts direkt passt: Stämme und Zusammensetzungen probieren
+  const all = [...entry.nameTokens, ...entry.tokens];
+  for (const stem of stems(word).slice(1)) {
+    if (stem.length < 3) continue;
+    for (const t of all) {
+      if (t === stem) best = Math.max(best, 50);
+      else if (t.startsWith(stem)) best = Math.max(best, 42);
+      else if (stem.length >= 4 && t.includes(stem)) best = Math.max(best, 30);
+    }
+  }
+  if (best) return best;
+
+  // Zusammengesetztes Suchwort, das mit einem Stichwort beginnt:
+  // „Laufband" → „laufen", „Wochenplanung" → „woche"
+  if (word.length >= 6) {
+    for (const t of all) {
+      if (t.length >= 4 && word.startsWith(t.slice(0, Math.min(t.length, 5)))) {
+        best = Math.max(best, 34);
+      }
+    }
+  }
+  if (best) return best;
+
+  // Letzte Stufe: gemeinsamer Wortanfang. Fängt Beugungen, die kein Stamm
+  // trifft („meditieren" ↔ „meditation").
+  if (word.length >= 5) {
+    for (const t of all) {
+      if (t.length < 5) continue;
+      let n = 0;
+      while (n < word.length && n < t.length && word[n] === t[n]) n++;
+      if (n >= 5) best = Math.max(best, 24 + n);
+    }
+  }
+  return best;
+}
+
+/**
+ * Passende Emojis zum eingegebenen Text.
+ * Jedes Wort muss irgendwo treffen – sonst käme bei „Zähne putzen" alles
+ * heraus, was nur „putzen" kennt.
+ */
+export function searchEmoji(text, limit = 30) {
+  const query = normalize(text);
+  if (!query) return [];
+  const words = query.split(' ').filter(w => w.length >= 2);
+  if (!words.length) return [];
+
+  const list = build();
+  const hits = [];
+
+  for (let i = 0; i < list.length; i++) {
+    const entry = list[i];
+    let total = 0;
+    let matchedAll = true;
+    for (const w of words) {
+      const s = scoreWord(entry, w);
+      if (!s) { matchedAll = false; break; }
+      total += s;
+    }
+    // Bei mehreren Wörtern reicht auch ein sehr guter Einzeltreffer
+    if (!matchedAll) {
+      if (words.length < 2) continue;
+      let best = 0;
+      for (const w of words) best = Math.max(best, scoreWord(entry, w));
+      if (best < 72) continue;
+      total = best - 20;          // schwächer als ein vollständiger Treffer
+    }
+    // Alltagsnahe Emojis klar bevorzugen: bei „Wasser trinken" ist 💧 gemeint,
+    // auch wenn ein Trinkbecher formal beide Wörter trifft.
+    if (entry.preferred) total = total * 1.35 + 25;
+    if (entry.flag) total -= 55;           // Länderflaggen sind selten gemeint
+    total -= i / list.length;              // Gleichstand: CLDR-Reihenfolge
+    hits.push({ emoji: entry.emoji, score: total });
+  }
+
+  hits.sort((a, b) => b.score - a.score);
+  return hits.slice(0, limit).map(h => h.emoji);
+}
+
+/** Startauswahl, solange nichts eingetippt ist: die alltagsnahen Emojis. */
+export function starterEmoji(limit = 30) {
+  return build().filter(e => e.preferred).slice(0, limit).map(e => e.emoji);
+}

@@ -5,7 +5,7 @@ import * as S from './store.js';
 import { attachSortable, isDragging } from './drag.js';
 import {
   toast, openSheet, confirmSheet, field, editorFields, textInput, emojiPicker,
-  colorPicker, stepper, chipGroup, checkButton, sectionToggle,
+  nameWithEmoji, colorPicker, stepper, chipGroup, checkButton, sectionToggle,
 } from './ui.js';
 
 /* Reihenfolge der Gruppen von oben nach unten. */
@@ -154,7 +154,7 @@ function metaParts(h, key, value, outOfPlan) {
 export function openHabitEditor(id, afterSave) {
   const existing = id ? S.habit(id) : null;
   const h = existing || {
-    name: '', emoji: '', color: 'indigo', note: '',
+    name: '', emoji: '', color: 'indigo',
     unit: 'count', unitLabel: '', target: 1, sched: 'day', days: [1, 2, 3, 4, 5],
   };
   let collect = () => null;
@@ -163,17 +163,11 @@ export function openHabitEditor(id, afterSave) {
     title: existing ? 'Habit bearbeiten' : 'Neues Habit',
     confirm: 'Sichern',
     build: (body, { close }) => {
-      /* --- Name, Emoji, Farbe --- */
+      /* --- Name mit Emoji davor, Farbe --- */
       const name = textInput({ value: h.name, placeholder: 'z. B. Wasser trinken' });
       const emoji = emojiPicker(h.emoji);
       const color = colorPicker(h.color);
-      // Der Name speist die Emoji-Vorschläge.
-      name.addEventListener('input', () => emoji.suggest(name.value));
       if (h.name) emoji.suggest(h.name);
-
-      /* --- Notiz --- */
-      const note = el('textarea', { class: 'input', placeholder: 'Warum? Woran denken?', maxlength: 400 });
-      note.value = h.note || '';
 
       /* --- Intervall: erst wie oft, dann was, dann wie viel --- */
       const sched = chipGroup(
@@ -218,10 +212,9 @@ export function openHabitEditor(id, afterSave) {
       syncSched(h.sched);
 
       body.append(...editorFields({
-        name: field('Name', name),
-        emoji: field('Emoji', emoji.node),
+        name: field('Name', nameWithEmoji(name, emoji)),
+        emoji: emoji.node,
         color: field('Farbe', color.node),
-        note: field('Notiz', note),
         interval: field('Wie oft', [sched.node, daysWrap]),
         unit: field('Was wird gezählt?', [unitSel, customWrap]),
         amount: field('Wie viele', [target.node, amountHint]),
@@ -251,7 +244,6 @@ export function openHabitEditor(id, afterSave) {
           name: n,
           emoji: emoji.value || '⭐️',
           color: color.value,
-          note: note.value.trim(),
           unit: unitSel.value,
           unitLabel: unitSel.value === 'custom' ? customUnit.value.trim() : '',
           target: target.value,

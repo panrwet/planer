@@ -8,7 +8,10 @@ import { renderDetail } from './habitDetail.js';
 import {
   renderTodos, renderListBar, openListMenu, openListEditor, openTodoEditor, bindListSelect,
 } from './todos.js';
-import { renderSettings, bindApply } from './settings.js';
+import { renderSettings, bindApply, flashSetting } from './settings.js';
+import { renderHome, bindNavigate as bindHomeNav } from './home.js';
+import { renderSearch, clearSearch, bindNavigate as bindSearchNav } from './search.js';
+import { warmUp as warmEmoji } from './emoji.js';
 
 S.load();
 
@@ -41,6 +44,8 @@ darkQuery.addEventListener('change', () => {
 /* ---------- Bildschirme ---------- */
 
 const SCREENS = {
+  home: '#screen-home',
+  search: '#screen-search',
   habits: '#screen-habits',
   detail: '#screen-detail',
   todos: '#screen-todos',
@@ -49,6 +54,7 @@ const SCREENS = {
 
 function show(screen, arg) {
   if (screen === 'detail') view.habitId = arg;
+  if (screen === 'settings') view.settingId = arg || null;
   if (screen === 'todos') {
     // Ohne Angabe die zuletzt offene Liste, sonst die erste vorhandene.
     const wanted = arg || view.listId;
@@ -74,6 +80,8 @@ function show(screen, arg) {
 
 function renderCurrent() {
   switch (view.screen) {
+    case 'home': renderHome(); break;
+    case 'search': renderSearch(); break;
     case 'habits': renderHabits(); break;
     case 'detail':
       if (!S.habit(view.habitId)) { show('habits'); return; }
@@ -83,7 +91,14 @@ function renderCurrent() {
       renderListBar(view.listId);
       renderTodos(view.listId);
       break;
-    case 'settings': renderSettings(); break;
+    case 'settings':
+      renderSettings();
+      if (view.settingId) {
+        const id = view.settingId;
+        view.settingId = null;
+        setTimeout(() => flashSetting(id), 260);
+      }
+      break;
   }
 }
 
@@ -96,16 +111,23 @@ bindApply(refreshAll);
 bindDetailOpener(id => show('detail', id));
 bindListSelect(id => show('todos', id));
 
+/** Ein Ziel, egal von wo aus angetippt. */
+function navigate(where, arg) {
+  if (where === 'habit') show('detail', arg);
+  else show(where, arg);
+}
+bindHomeNav(navigate);
+bindSearchNav(navigate);
+
 /* ---------- Bedienelemente ---------- */
 
 for (const b of $$('#tabbar .tab')) {
-  b.addEventListener('click', () => {
-    const goto = b.dataset.goto;
-    if (goto === 'habits') show('habits');
-    else if (goto === 'todos') show('todos');
-    else show('settings');
-  });
+  b.addEventListener('click', () => show(b.dataset.goto));
 }
+
+$('#search-back').addEventListener('click', () => show('home'));
+$('#search-clear').addEventListener('click', clearSearch);
+$('#settings-back').addEventListener('click', () => show('home'));
 
 $('#habit-add').addEventListener('click', () => openHabitEditor(null, () => renderHabits()));
 
@@ -167,7 +189,8 @@ addEventListener('storage', (e) => {
 /* ---------- Start ---------- */
 
 applyAppearance();
-show('habits');
+show('home');
+warmEmoji();     // Emoji-Index im Leerlauf vorbereiten
 
 if (!S.getData().habits.length && !S.getData().lists.length) {
   // Erster Start: kurz erklären, was die App mit den Daten macht.

@@ -22,6 +22,37 @@
 <body>
 
 <div id="app">
+  <!-- START -->
+  <section class="screen" id="screen-home" data-tab="home">
+    <header class="topbar">
+      <div class="topbar-inner"><h1 class="title" id="home-greeting">Start</h1></div>
+      <p class="subtitle" id="home-date"></p>
+    </header>
+    <div class="scroll" id="home-scroll"></div>
+  </section>
+
+  <!-- SUCHE -->
+  <section class="screen" id="screen-search" data-tab="home">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <button class="back-btn" id="search-back" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          <span>Start</span>
+        </button>
+      </div>
+      <div class="search-field">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
+        <input id="search-input" class="input" type="search" placeholder="Suchen …"
+               autocomplete="off" autocapitalize="off" autocorrect="off" enterkeyhint="search"
+               aria-label="Suche über Habits, Aufgaben, Listen und Einstellungen">
+        <button class="search-clear" id="search-clear" type="button" aria-label="Suche leeren" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="scroll" id="search-scroll"></div>
+  </section>
+
   <!-- HABITS -->
   <section class="screen" id="screen-habits" data-tab="habits">
     <header class="topbar">
@@ -82,9 +113,15 @@
   </section>
 
   <!-- EINSTELLUNGEN -->
-  <section class="screen" id="screen-settings" data-tab="settings">
+  <section class="screen" id="screen-settings" data-tab="home">
     <header class="topbar">
-      <div class="topbar-inner"><h1 class="title">Einstellungen</h1></div>
+      <div class="topbar-inner">
+        <button class="back-btn" id="settings-back" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          <span>Start</span>
+        </button>
+      </div>
+      <h1 class="title">Einstellungen</h1>
     </header>
     <div class="scroll" id="settings-scroll"></div>
   </section>
@@ -97,17 +134,17 @@
   </nav>
 
   <nav class="tabbar" id="tabbar" aria-label="Hauptbereiche">
-    <button class="tab" data-goto="habits" type="button" aria-current="page">
+    <button class="tab" data-goto="home" type="button" aria-current="page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>
+      <span>Start</span>
+    </button>
+    <button class="tab" data-goto="habits" type="button">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
       <span>Habits</span>
     </button>
     <button class="tab" data-goto="todos" type="button">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
       <span>Todos</span>
-    </button>
-    <button class="tab" data-goto="settings" type="button">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 00.32 1.77l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.6 1.6 0 00-1.77-.32 1.6 1.6 0 00-.97 1.47V21a2 2 0 11-4 0v-.11a1.6 1.6 0 00-1.05-1.46 1.6 1.6 0 00-1.77.32l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.6 1.6 0 00.32-1.77 1.6 1.6 0 00-1.47-.97H3a2 2 0 110-4h.11A1.6 1.6 0 004.57 9a1.6 1.6 0 00-.32-1.77l-.06-.06a2 2 0 112.83-2.83l.06.06a1.6 1.6 0 001.77.32H9a1.6 1.6 0 00.97-1.47V3a2 2 0 114 0v.11a1.6 1.6 0 00.97 1.47 1.6 1.6 0 001.77-.32l.06-.06a2 2 0 112.83 2.83l-.06.06a1.6 1.6 0 00-.32 1.77V9a1.6 1.6 0 001.47.97H21a2 2 0 110 4h-.11a1.6 1.6 0 00-1.47.97z"/></svg>
-      <span>Mehr</span>
     </button>
   </nav>
 </div>

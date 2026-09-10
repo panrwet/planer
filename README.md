@@ -30,6 +30,19 @@ oder Dateien ablegen lässt und über **Daten wiederherstellen** zurückkommt.
 
 ## Funktionen
 
+**Startseite**
+- Habits heute: erledigt von fällig, Fortschrittsbalken und ein Punkt je Habit
+- Aufgaben nach Fälligkeit: überfällig, heute, morgen, diese Woche – jede Zeile
+  öffnet die betroffenen Aufgaben, direkt abhakbar
+- Laufende Serien der längsten drei Habits
+- Kacheln für Suche und Einstellungen
+
+**Suche**
+- Ein Feld über alles: Habits, Aufgaben samt Notizen, Listen und Einstellungen
+- Treffer nach Bereich gruppiert, Suchbegriff hervorgehoben, Antippen führt zum
+  Ziel – bei einer Einstellung wird sie kurz hervorgehoben
+- Ein neuer Bereich braucht nur einen Block in `store.search()`
+
 **Habits**
 - Nach Häufigkeit gruppiert: *Täglich*, *An bestimmten Tagen*, *Pro Woche*,
   *Pro Monat* und *Erledigt* – jede Gruppe auf- und zuklappbar, der Zustand
@@ -68,9 +81,12 @@ oder Dateien ablegen lässt und über **Daten wiederherstellen** zurückkommt.
 **Editoren**
 - Überall dieselbe Feldreihenfolge: Name, Emoji, Farbe, Fälligkeit, Notiz, wie
   oft, was gezählt wird, wie viele – jeder Editor zeigt nur, was es bei ihm
-  gibt. Die Reihenfolge steht als `FIELD_ORDER` an einer Stelle in `js/ui.js`
-- Emoji-Feld mit zwei wischbaren Zeilen: Vorschläge, die zum eingegebenen Namen
-  passen (aus `js/emoji.js`, deutsche Stichwörter), und die zuletzt benutzten
+  gibt. Die Reihenfolge steht als `FIELD_ORDER` an einer Stelle in `js/ui.js`.
+  Habits haben alles außer Fälligkeit und Notiz, Aufgaben kein Emoji und keinen
+  Zeitplan, Listen nur Name, Emoji und Farbe
+- Das Emoji-Kästchen sitzt links neben dem Namensfeld – eine Zeile statt zwei.
+  Darunter zwei wischbare Zeilen: Vorschläge zum eingegebenen Namen und die
+  zuletzt benutzten
 - Farbwähler mit 16 Tönen in zwei Reihen
 
 **Einstellungen**
@@ -98,12 +114,42 @@ js/habits.js            Habits-Liste und Editor
 js/habitDetail.js       Statistiken, Kalender, Balken
 js/todos.js             Listen, Reiterleiste, Drop-up, Aufgaben
 js/drag.js              Umsortieren per Finger, mit und ohne Einrücken
-js/emoji.js             Emoji-Datenbank mit deutscher Stichwortsuche
+js/home.js              Startseite mit dem Überblick
+js/search.js            Freie Suche über alle Bereiche
+js/emoji.js             Emoji-Suche mit deutschem Wortstamm-Abgleich
+js/emoji-data.js        erzeugt – 1949 Emojis mit deutschen Namen
+tools/build-emoji.mjs   erzeugt emoji-data.js aus den CLDR-Daten
 js/settings.js          Einstellungen, Sicherung
 js/app.js               Router und Verdrahtung
 test/store.test.mjs     Tests der Rechenlogik
 test/emoji.test.mjs     Tests der Emoji-Suche
 ```
+
+## Emoji-Bibliothek
+
+`js/emoji-data.js` ist erzeugt und enthält alle 1949 Emojis mit ihren
+**offiziellen deutschen Namen und Suchbegriffen** aus den CLDR-Daten von
+Unicode. Hautfarben- und Geschlechtsvarianten sind ausgelassen, Länderflaggen
+bei der Suche nachrangig.
+
+CLDR beschreibt, was ein Emoji darstellt – nicht, wofür man es verwendet.
+„Vitamine" steht bei keinem Emoji, „Krafttraining" auch nicht. Deshalb liegt in
+`tools/build-emoji.mjs` eine Alltagsschicht: rund 80 Emojis mit den Wörtern, die
+man bei Habits und Aufgaben wirklich eintippt. Dieselbe Liste bestimmt auch,
+welche Emojis bei mehreren Treffern vorn stehen und was ohne Eingabe
+vorgeschlagen wird.
+
+Neu erzeugen (die beiden Dateien stammen aus dem CLDR-Repo,
+`common/annotations/de.xml` und `common/annotationsDerived/de.xml`):
+
+```bash
+node tools/build-emoji.mjs de.xml annotationsDerived-de.xml
+```
+
+Die Suche gleicht deutsche Wortformen ab: Beugungen über abgeschnittene
+Endungen, Partizipien über das Präfix „ge-", Zusammensetzungen über den
+Wortanfang. `test/emoji.test.mjs` misst die Trefferquote an 48 typischen
+Eingaben und lässt weniger als 80 % an erster Stelle nicht durchgehen.
 
 ## Datenformat
 
