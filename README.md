@@ -38,8 +38,9 @@ oder Dateien ablegen lässt und über **Daten wiederherstellen** zurückkommt.
   steht als „frei"; Antippen öffnet die Gruppe im Habits-Reiter
 - Aufgaben: zuerst der Bestand (insgesamt, offen, erledigt, überfällig – letztes
   in Warnfarbe), darunter nach Fälligkeit aufgeteilt in überfällig, heute,
-  morgen und diese Woche. Jede Zeile öffnet die betroffenen Aufgaben, direkt
-  abhakbar. Die Fußzeile nennt Aufgaben ohne Datum, spätere und die Listenzahl
+  morgen und diese Woche – innerhalb eines Korbs nach Datum sortiert, bei
+  „Überfällig" also das Älteste zuerst. Jede Zeile öffnet die betroffenen
+  Aufgaben, direkt abhakbar. Die Fußzeile nennt Aufgaben ohne Datum, spätere und die Listenzahl
 - Laufende Serien der längsten drei Habits
 - Kacheln für Suche und Einstellungen
 
@@ -85,9 +86,19 @@ würde „0 von 2".
 - Überfälliges ist an drei Stellen sichtbar: „3 Tage überfällig" in der Zeile,
   ein Zähler in der Kopfzeile und ein roter Zähler am Listen-Reiter. Die
   Sortierung bleibt davon unberührt
-- Unteraufgaben wie in Apple Erinnerungen: Aufgabe gedrückt halten, verschieben,
-  nach rechts ziehen rückt sie unter die darüberliegende Aufgabe ein
-- Eine Aufgabe abhaken hakt ihre Unteraufgaben mit ab
+- Unteraufgaben auf drei Wegen, vom schnellsten zum ausdrücklichsten:
+  1. **Wischen** – Zeile nach rechts wischen. Kurz wischen legt einen Knopf
+     frei (*Einrücken* bzw. *Ausrücken*), weit wischen löst sofort aus. Steht
+     ein Knopf offen, schließt der nächste Tipp irgendwo anders nur ihn und
+     löst sonst nichts aus
+  2. **Ziehen** – gedrückt halten, verschieben; nach rechts einrücken
+  3. **Im Editor** – „Unteraufgabe hinzufügen": anlegen, abhaken, entfernen.
+     Beim Neuanlegen werden sie gesammelt und nach dem Sichern mit angelegt
+- Eine Aufgabe abhaken hakt ihre Unteraufgaben mit ab; sind alle Unteraufgaben
+  erledigt, gilt auch die Überaufgabe als erledigt
+- Beim Abhaken leuchtet die Zeile kurz in ihrer Farbe auf – in der Liste, auf
+  der Startseite und in der Habit-Detailansicht gleichermaßen. Ein Habit
+  leuchtet erst, wenn das Ziel erreicht ist, nicht bei jedem Zwischenschritt
 
 **Editoren**
 - Überall dieselbe Feldreihenfolge: Name, Emoji, Farbe, Fälligkeit, Notiz, wie
@@ -125,6 +136,7 @@ js/habits.js            Habits-Liste und Editor
 js/habitDetail.js       Statistiken, Kalender, Balken
 js/todos.js             Listen, Reiterleiste, Drop-up, Aufgaben
 js/drag.js              Umsortieren per Finger, mit und ohne Einrücken
+js/swipe.js             Wischen nach rechts zum Ein- und Ausrücken
 js/home.js              Startseite mit dem Überblick
 js/search.js            Freie Suche über alle Bereiche
 js/emoji.js             Emoji-Suche mit deutschem Wortstamm-Abgleich
@@ -134,6 +146,7 @@ js/settings.js          Einstellungen, Sicherung
 js/app.js               Router und Verdrahtung
 test/store.test.mjs     Tests der Rechenlogik
 test/emoji.test.mjs     Tests der Emoji-Suche
+test/browser.mjs        Bedienung im iPhone-Format, auch mit echten Berührungen
 ```
 
 ## Emoji-Bibliothek
@@ -191,7 +204,21 @@ schreiben. Ändert eine andere Instanz etwas, übernimmt die App den neuen Stand
 python3 -m http.server 8000     # danach http://localhost:8000 öffnen
 node test/store.test.mjs        # Rechenlogik: Intervalle, Streaks, Migrationen
 node test/emoji.test.mjs        # Emoji-Suche
+
+npm i playwright                # einmalig, nur für die Browser-Prüfungen
+node test/browser.mjs           # Bedienung im iPhone-Format
 ```
+
+`test/browser.mjs` startet einen eigenen Dateiserver und fährt die App im
+iPhone-14-Format durch: Startseite, Suche, Editoren, Unteraufgaben, Aufleuchten,
+Gesten, Datenerhalt und Layout. Zwei Arten von Eingaben – mit dem Zeiger
+(schnell, deckt die Logik ab) und mit **echten Berührungen** über das
+Debug-Protokoll. Das zweite ist unverzichtbar: `touch-action` wirkt nur bei
+echten Berührungen, und genau dort ist das Sortieren per Ziehen schon einmal
+stillschweigend ausgefallen, während alle Zeiger-Prüfungen grün blieben.
+
+Ist ein Chromium schon da, zeigt `CHROME_PATH` darauf; `SHOTS=verzeichnis` legt
+unterwegs Bildschirmfotos ab.
 
 Nach Änderungen an den Dateien die Version in `sw.js` (`VERSION`) hochzählen,
 damit der Service Worker den alten Stand nicht weiter ausliefert.

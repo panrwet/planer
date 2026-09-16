@@ -363,6 +363,107 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .check.is-done .track, .check.is-done .prog { opacity: 0; }
 .check.is-done .count { display: none; }
 
+/* Aufleuchten beim Abhaken: die Zeile blitzt kurz in ihrer eigenen Farbe.
+   Ohne gesetzte Farbe übernimmt die Akzentfarbe. */
+@keyframes flash-done {
+  0%   { background: var(--surface); box-shadow: var(--shadow-1); }
+  22%  { background: color-mix(in oklab, var(--tint, var(--accent)) 34%, var(--surface));
+         box-shadow: 0 0 0 3px color-mix(in oklab, var(--tint, var(--accent)) 26%, transparent), var(--shadow-1); }
+  100% { background: var(--surface); box-shadow: var(--shadow-1); }
+}
+/* Gilt für Zeilen und für die Karte in der Detailansicht. */
+.flash-done { animation: flash-done .62s cubic-bezier(.25, .8, .35, 1); }
+/* Getönte Zeilen kehren zu ihrem eigenen Grund zurück, nicht zu Weiß. */
+.row.tinted.flash-done {
+  animation-name: flash-done-tinted;
+}
+@keyframes flash-done-tinted {
+  0%   { background: color-mix(in oklab, var(--tint) 5%, var(--surface)); }
+  22%  { background: color-mix(in oklab, var(--tint) 38%, var(--surface));
+         box-shadow: 0 0 0 3px color-mix(in oklab, var(--tint) 26%, transparent), var(--shadow-1); }
+  100% { background: color-mix(in oklab, var(--tint) 5%, var(--surface)); }
+}
+
+/* ==========================================================================
+   Wischen zum Ein- und Ausrücken
+   ========================================================================== */
+.todo-wrap { position: relative; }
+
+/* Der Knopf liegt hinter der Zeile und kommt beim Wischen zum Vorschein. */
+.swipe-action {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  gap: 4px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px; font-weight: 650;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.swipe-action.outdent { background: var(--text-3); }
+/* Der Knopf steht im Markup vor der Zeile, deshalb über :has() statt über
+   einen Geschwister-Selektor. */
+.todo-wrap:has(.row.swiping) .swipe-action,
+.todo-wrap:has(.row.swiped) .swipe-action { opacity: 1; }
+
+/* pan-y lässt den Browser senkrecht scrollen und überlässt die waagerechte
+   Bewegung der App – ohne das käme die Wischgeste gar nicht an. */
+.todo-wrap .row { position: relative; z-index: 1; touch-action: pan-y; }
+/* Kurz vor dem Auslösen zeigt der Knopf, dass er greift. */
+.todo-wrap:has(.row.will-fire) .swipe-action { background: var(--accent); filter: brightness(1.1); }
+.todo-wrap:has(.row.will-fire.swiping) .swipe-action::after {
+  content: " ✓";
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Unteraufgaben im Editor
+   ========================================================================== */
+.sub-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.sub-list:empty { display: none; }
+.sub-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+.sub-row.is-done .sub-title { text-decoration: line-through; color: var(--text-3); }
+.sub-check {
+  flex: none;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  position: relative;
+}
+.sub-check.on { background: var(--accent); border-color: var(--accent); }
+.sub-check.on::after {
+  content: "";
+  position: absolute;
+  left: 6px; top: 2px;
+  width: 5px; height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.sub-check:active { transform: scale(.88); }
+.sub-title {
+  flex: 1; min-width: 0;
+  font-size: 14.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sub-remove {
+  flex: none;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  color: var(--text-3);
+}
+.sub-remove:active { background: var(--surface-2); }
+
 /* ==========================================================================
    Abschnitt "Erledigt"
    ========================================================================== */
@@ -412,7 +513,6 @@ input, textarea { -webkit-user-select: text; user-select: text; }
    Todos: Verschachtelung & Ziehen
    ========================================================================== */
 .sort-wrap { position: relative; }
-.todo-wrap { position: relative; }
 .todo-wrap[data-depth="1"] { margin-left: 26px; }
 .todo-wrap[data-depth="2"] { margin-left: 52px; }
 

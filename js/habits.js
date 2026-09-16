@@ -6,6 +6,7 @@ import { attachSortable, isDragging } from './drag.js';
 import {
   toast, openSheet, confirmSheet, field, editorFields, textInput, emojiPicker,
   nameWithEmoji, colorPicker, stepper, chipGroup, checkButton, sectionToggle,
+  applyFlash,
 } from './ui.js';
 
 /* Reihenfolge der Gruppen von oben nach unten. */
@@ -100,12 +101,15 @@ function habitRow(h, key, dimIfDone) {
     ]),
     // Abhaken sitzt rechts – dort liegt der Daumen.
     checkButton({
-      value, target: h.target, color: tint,
+      value, target: h.target, color: tint, flashKey: h.id,
       label: done ? `${h.name} zurücksetzen` : `${h.name} abhaken`,
       onTap: () => { S.bump(h.id, key); renderHabits(); },
       onHold: () => { S.unbump(h.id, key); renderHabits(); },
     }),
   ]);
+
+  // Gerade das Ziel erreicht? Dann einmal in der eigenen Farbe aufleuchten.
+  if (done) applyFlash(row, h.id);
 
   // Ein Tipp auf die Zeile öffnet die Details – außer der Tipp beendet ein Ziehen.
   row.addEventListener('click', (e) => {

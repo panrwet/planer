@@ -4,7 +4,7 @@
 
 import { $, el, num, formatLongDate, formatDue, daysBetween, haptic } from './util.js';
 import * as S from './store.js';
-import { openSheet, closeSheet, checkButton, toast } from './ui.js';
+import { openSheet, closeSheet, checkButton, applyFlash } from './ui.js';
 
 let go = () => {};
 /** Navigation von außen: go('habits') | go('todos', listId) | go('settings') | go('search') */
@@ -225,11 +225,12 @@ function openBucket(label, items, key) {
               ].filter(Boolean)),
             ]),
             checkButton({
-              value: t.done ? 1 : 0, target: 1, color: tint,
+              value: t.done ? 1 : 0, target: 1, color: tint, flashKey: t.id,
               label: t.done ? `${t.title} wieder öffnen` : `${t.title} abhaken`,
               onTap: () => { S.toggleTodo(t.id); paint(); renderHome(); },
             }),
           ]);
+          if (t.done) applyFlash(row, t.id);
           row.addEventListener('click', (e) => {
             if (e.target.closest('.check')) return;
             closeSheet();

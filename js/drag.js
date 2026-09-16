@@ -103,6 +103,7 @@ function begin(wrap, startX, startY, opts) {
 
   state = {
     host, ghost, placeholder, block, opts, nesting, maxDepth, ownDepth,
+    startedAt: Date.now(),
     offsetX: startX - rect.left,
     offsetY: startY - rect.top,
     startX,
@@ -116,7 +117,16 @@ function begin(wrap, startX, startY, opts) {
   window.addEventListener('pointermove', onMove, { passive: false });
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
+  /* Die Zeilen tragen touch-action: pan-y, damit die Wischgeste funktioniert.
+     Ohne diesen Riegel würde der Browser die senkrechte Bewegung als Scrollen
+     beanspruchen und das Ziehen mit pointercancel abbrechen – auf dem Telefon
+     ließe sich dann gar nicht sortieren. */
+  document.addEventListener('touchmove', blockScroll, { passive: false });
   requestAnimationFrame(tickAutoScroll);
+}
+
+function blockScroll(e) {
+  if (state) e.preventDefault();
 }
 
 function moveGhost(x, y) {
@@ -180,13 +190,17 @@ function updateTarget() {
   placeholder.classList.toggle('will-nest', depth > 0);
 }
 
-function onUp() {
+function onUp(e) {
   if (!state) return;
+  // Manche Browser schicken direkt nach dem Anheben noch ein pointercancel der
+  // vorangegangenen Geste. So kurz nach dem Start ist das nicht gemeint.
+  if (e?.type === 'pointercancel' && Date.now() - state.startedAt < 250) return;
   const { host, placeholder, ghost, block, opts, nesting, depth, ownDepth } = state;
 
   window.removeEventListener('pointermove', onMove);
   window.removeEventListener('pointerup', onUp);
   window.removeEventListener('pointercancel', onUp);
+  document.removeEventListener('touchmove', blockScroll);
   document.body.classList.remove('is-dragging');
   document.querySelector('.drag-hint')?.remove();
 

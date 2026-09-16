@@ -102,7 +102,7 @@ export function confirmSheet({ title, message, confirmLabel = 'Löschen', danger
  * Bausteine, die es bei ihm gibt – die Reihenfolge steht hier, an einer
  * Stelle, damit „Neu" und „Bearbeiten" in allen Bereichen gleich aussehen.
  */
-export const FIELD_ORDER = ['name', 'emoji', 'color', 'due', 'note', 'interval', 'unit', 'amount'];
+export const FIELD_ORDER = ['name', 'emoji', 'color', 'due', 'note', 'subtasks', 'interval', 'unit', 'amount'];
 
 /** Setzt den Sheet-Inhalt in der verbindlichen Reihenfolge zusammen. */
 export function editorFields(parts) {
@@ -427,8 +427,36 @@ export function dropupItem({ emoji, label, hint, active, danger, overdue, onClic
 
 /* ---------- Zeilen-Bausteine ---------- */
 
+/* Aufleuchten beim Abhaken.
+   Ein Tipp zeichnet die Liste neu, die angetippte Zeile ist danach also gar
+   nicht mehr im Baum. Deshalb wird nur vorgemerkt, *was* geleuchtet hat, und
+   die neu gebaute Zeile holt sich die Markierung ab. */
+let pendingFlash = null;
+
+export function markFlash(key) {
+  if (key) pendingFlash = { key, at: Date.now() };
+}
+
+/** Holt die Vormerkung ab – einmalig und nur, solange sie frisch ist. */
+export function consumeFlash(key) {
+  if (!pendingFlash || pendingFlash.key !== key) return false;
+  const fresh = Date.now() - pendingFlash.at < 1200;
+  pendingFlash = null;
+  return fresh;
+}
+
+/** Setzt das Aufleuchten und räumt die Klasse danach wieder ab – sonst bliebe
+    sie an der Zeile hängen und die nächste Prüfung sähe ein Dauerleuchten. */
+export function applyFlash(row, key) {
+  if (!consumeFlash(key)) return;
+  row.classList.add('flash-done');
+  row.addEventListener('animationend', () => row.classList.remove('flash-done'), { once: true });
+  // Falls Animationen abgeschaltet sind, feuert animationend nicht.
+  setTimeout(() => row.classList.remove('flash-done'), 900);
+}
+
 /** Runder Abhak-Button mit Fortschrittsring. */
-export function checkButton({ value, target, color, onTap, onHold, label }) {
+export function checkButton({ value, target, color, onTap, onHold, label, flashKey }) {
   const done = value >= target;
   const pct = target > 0 ? Math.min(1, value / target) : 0;
   const R = 15.5;
@@ -455,7 +483,12 @@ export function checkButton({ value, target, color, onTap, onHold, label }) {
     btn.append(el('span', { class: 'count', text: String(value) }));
   }
 
-  attachTapHold(btn, onTap, onHold);
+  attachTapHold(btn, () => {
+    // Vormerken, bevor neu gezeichnet wird. Ob wirklich geleuchtet wird,
+    // entscheidet die neue Zeile: nur wenn sie dann auch erledigt ist.
+    if (!done) markFlash(flashKey);
+    onTap();
+  }, onHold);
   return btn;
 }
 

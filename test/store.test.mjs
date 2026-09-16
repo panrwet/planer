@@ -430,6 +430,107 @@ test('Aufgaben verlieren ihr Emoji', () => {
   assert.equal(S.todosOf('b')[0].emoji, '');
 });
 
+console.log('\nEin- und Ausrücken');
+
+/** Liste mit den Titeln A, B, C … und ihrer Tiefe. */
+function tree(listId) {
+  const byId = new Map(S.todosOf(listId).map(t => [t.id, t]));
+  const depth = (t) => { let d = 0, c = t; while (c.parent && byId.has(c.parent)) { c = byId.get(c.parent); d++; } return d; };
+  return S.todosOf(listId).map(t => `${'  '.repeat(depth(t))}${t.title}`);
+}
+
+test('die erste Zeile lässt sich nicht einrücken', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'A' });
+  S.addTodo(l.id, { title: 'B' });
+  assert.equal(S.canIndent(a.id), false);
+  assert.equal(S.indentTodo(a.id), false);
+});
+
+test('Einrücken macht zur Unteraufgabe des Vorgängers', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'A' });
+  const b = S.addTodo(l.id, { title: 'B' });
+  assert.equal(S.indentTodo(b.id), true);
+  assert.equal(S.todo(b.id).parent, a.id);
+  assert.deepEqual(tree(l.id), ['A', '  B']);
+});
+
+test('zweimal Einrücken geht eine Ebene tiefer', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  S.addTodo(l.id, { title: 'A' });
+  const b = S.addTodo(l.id, { title: 'B' });
+  const c = S.addTodo(l.id, { title: 'C' });
+  S.indentTodo(b.id);
+  S.indentTodo(c.id);          // wird Kind von A
+  S.indentTodo(c.id);          // wird Kind von B
+  assert.deepEqual(tree(l.id), ['A', '  B', '    C']);
+});
+
+test('die Tiefengrenze wird eingehalten', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  S.addTodo(l.id, { title: 'A' });
+  const b = S.addTodo(l.id, { title: 'B' });
+  const c = S.addTodo(l.id, { title: 'C' });
+  const d = S.addTodo(l.id, { title: 'D' });
+  S.indentTodo(b.id);
+  S.indentTodo(c.id); S.indentTodo(c.id);
+  S.indentTodo(d.id); S.indentTodo(d.id);
+  assert.equal(S.canIndent(d.id, 2), false, 'Ebene 3 ist nicht erlaubt');
+  assert.equal(S.indentTodo(d.id, 2), false);
+});
+
+test('eine Aufgabe mit Kindern darf nur so tief, dass die Kinder passen', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  S.addTodo(l.id, { title: 'A' });
+  const b = S.addTodo(l.id, { title: 'B' });
+  const c = S.addTodo(l.id, { title: 'C' });
+  S.indentTodo(c.id);          // C wird Kind von B
+  assert.deepEqual(tree(l.id), ['A', 'B', '  C']);
+  assert.equal(S.canIndent(b.id, 2), true, 'B plus Kind passt noch in zwei Ebenen');
+  S.indentTodo(b.id);
+  assert.deepEqual(tree(l.id), ['A', '  B', '    C']);
+  assert.equal(S.canIndent(b.id, 2), false, 'tiefer ginge das Kind verloren');
+});
+
+test('Ausrücken hebt an und nimmt die folgenden Geschwister mit', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'A' });
+  const b = S.addTodo(l.id, { title: 'B' });
+  const c = S.addTodo(l.id, { title: 'C' });
+  S.indentTodo(b.id);
+  S.indentTodo(c.id);
+  assert.deepEqual(tree(l.id), ['A', '  B', '  C']);
+  S.outdentTodo(b.id);
+  // C stand unter A nach B – es bleibt logisch bei B
+  assert.deepEqual(tree(l.id), ['A', 'B', '  C']);
+});
+
+test('auf oberster Ebene gibt es nichts auszurücken', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'A' });
+  assert.equal(S.canOutdent(a.id), false);
+  assert.equal(S.outdentTodo(a.id), false);
+});
+
+test('Ränge bleiben nach dem Umhängen ganzzahlig und lückenlos', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  S.addTodo(l.id, { title: 'A' });
+  const b = S.addTodo(l.id, { title: 'B' });
+  S.addTodo(l.id, { title: 'C' });
+  S.indentTodo(b.id);
+  const orders = S.todosOf(l.id).map(t => t.order);
+  assert.deepEqual(orders, [0, 1, 2], `Ränge: ${orders}`);
+});
+
 console.log('\nÜberblick für die Startseite');
 test('Habits nach Intervall aufgeschlüsselt, Summe passt zur Gesamtzahl', () => {
   S._setData({});
@@ -507,6 +608,41 @@ test('erledigte Aufgaben zählen nicht als überfällig', () => {
   assert.equal(S.overview().todos.overdue.length, 0);
 });
 
+test('Fälligkeits-Körbe nach Datum sortiert, nicht nach Listenreihenfolge', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  // Absichtlich verkehrt herum angelegt: jüngstes Datum zuerst.
+  S.addTodo(l.id, { title: 'seit gestern', due: addDays(S.today(), -1) });
+  S.addTodo(l.id, { title: 'seit einem Monat', due: addDays(S.today(), -30) });
+  S.addTodo(l.id, { title: 'seit einer Woche', due: addDays(S.today(), -7) });
+  S.addTodo(l.id, { title: 'in sechs Tagen', due: addDays(S.today(), 6) });
+  S.addTodo(l.id, { title: 'in drei Tagen', due: addDays(S.today(), 3) });
+
+  const t = S.overview().todos;
+  assert.deepEqual(t.overdue.map(x => x.title),
+    ['seit einem Monat', 'seit einer Woche', 'seit gestern'],
+    'das Älteste steht oben');
+  assert.deepEqual(t.thisWeek.map(x => x.title), ['in drei Tagen', 'in sechs Tagen'],
+    'das Nächste steht oben');
+});
+
+test('gleiches Fälligkeitsdatum behält die Listenreihenfolge', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const due = addDays(S.today(), -2);
+  for (const title of ['A', 'B', 'C']) S.addTodo(l.id, { title, due });
+  assert.deepEqual(S.overview().todos.overdue.map(x => x.title), ['A', 'B', 'C']);
+});
+
+test('Sortieren der Körbe verändert die gespeicherte Reihenfolge nicht', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  S.addTodo(l.id, { title: 'spät', due: addDays(S.today(), -1) });
+  S.addTodo(l.id, { title: 'früh', due: addDays(S.today(), -9) });
+  S.overview();
+  assert.deepEqual(S.todosOf(l.id).map(x => x.title), ['spät', 'früh']);
+});
+
 test('Serien nach Länge sortiert', () => {
   S._setData({});
   const a = S.addHabit({ name: 'Kurz', sched: 'day', created: '2026-01-01' });
@@ -517,6 +653,89 @@ test('Serien nach Länge sortiert', () => {
   const st = S.overview().streaks;
   assert.equal(st[0].habit.name, 'Lang');
   assert.ok(st[0].streak > st[1].streak);
+});
+
+console.log('\nBeschädigte Daten');
+test('Ringschluss stürzt nicht ab', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'A' });
+  const b = S.addTodo(l.id, { title: 'B' });
+  S.updateTodo(a.id, { parent: b.id });
+  S.updateTodo(b.id, { parent: a.id });
+  assert.ok(Number.isFinite(S.depthOf(S.todo(a.id))), 'Tiefe bleibt endlich');
+  assert.ok(S.descendantsOf(a.id).length <= 2, 'Nachfahren laufen nicht im Kreis');
+  assert.doesNotThrow(() => S.overview());
+});
+
+test('Aufgabe als ihr eigener Elternteil', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'A' });
+  S.updateTodo(a.id, { parent: a.id });
+  assert.doesNotThrow(() => S.descendantsOf(a.id));
+  assert.doesNotThrow(() => S.toggleTodo(a.id));
+});
+
+test('Import räumt kaputte Einträge weg statt zu scheitern', () => {
+  S._setData({});
+  const json = JSON.stringify({
+    v: 4,
+    habits: [null, { id: 'h1', name: 'Gut', target: 2 }, { id: 'h1', name: 'Dublette' }, { name: 'Ohne Kennung' }],
+    lists: [{ id: 'l1', name: 'Liste' }, null],
+    todos: [
+      { id: 't1', listId: 'l1', title: 'Gut' },
+      { id: 't2', listId: 'gibtsnicht', title: 'Ohne Liste' },
+      { id: 't3', listId: 'l1', title: 'Ring', parent: 't3' },
+      null,
+    ],
+    log: { h1: { '2026-09-10': 2, 'kaputt': 5, '2026-09-11': -3 }, unbekannt: { '2026-09-10': 1 } },
+  });
+  assert.doesNotThrow(() => S.importJSON(json));
+
+  const habits = S.habits();
+  assert.equal(habits.filter(h => h.id === 'h1').length, 1, 'Dublette entfernt');
+  assert.ok(habits.every(h => h.id && h.name), 'jedes Habit hat Kennung und Namen');
+  assert.equal(S.todosOf('l1').length, 2, 'Aufgabe ohne Liste verworfen');
+  assert.equal(S.todo('t3').parent, null, 'Selbstverweis aufgelöst');
+  assert.equal(S.valueOn('h1', '2026-09-10'), 2, 'gültiger Wert erhalten');
+  assert.equal(S.valueOn('h1', '2026-09-11'), 0, 'negativer Wert verworfen');
+  assert.equal(S.getData().log.unbekannt, undefined, 'Verlauf ohne Habit verworfen');
+});
+
+test('unsinnige Zielwerte werden auf etwas Brauchbares gesetzt', () => {
+  S._setData({});
+  S.importJSON(JSON.stringify({
+    v: 4, lists: [], todos: [], log: {},
+    habits: [{ id: 'a', name: 'A', target: 'viel' }, { id: 'b', name: 'B', target: -5 },
+             { id: 'c', name: 'C', target: 0 }, { id: 'd', name: 'D', target: '2,5' }],
+  }));
+  const t = Object.fromEntries(S.habits().map(h => [h.name, h.target]));
+  assert.equal(t.A, 1);
+  assert.equal(t.B, 1);
+  assert.equal(t.C, 1);
+  assert.equal(t.D, 2.5, 'Komma als Dezimaltrenner');
+});
+
+test('ungültiger Zeitplan fällt auf täglich zurück', () => {
+  S._setData({});
+  S.importJSON(JSON.stringify({
+    v: 4, lists: [], todos: [], log: {},
+    habits: [{ id: 'a', name: 'A', sched: 'quartalsweise' }, { id: 'b', name: 'B', sched: 'days', days: [9, -1, 'x'] }],
+  }));
+  const h = Object.fromEntries(S.habits().map(x => [x.name, x]));
+  assert.equal(h.A.sched, 'day');
+  assert.deepEqual(h.B.days, [1, 2, 3, 4, 5], 'unbrauchbare Wochentage ersetzt');
+});
+
+test('Berechnungen über sehr lange Zeiträume bleiben begrenzt', () => {
+  S._setData({});
+  const h = S.addHabit({ name: 'Alt', created: '2015-01-01' });
+  const t0 = Date.now();
+  const r = S.completionRate(h, S.today());
+  const st = S.currentStreak(h, S.today());
+  assert.ok(Date.now() - t0 < 500, 'rechnet in vertretbarer Zeit');
+  assert.ok(Number.isFinite(r.pct) && Number.isFinite(st));
 });
 
 console.log('\nBackup');

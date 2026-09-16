@@ -5,9 +5,11 @@
 import { $, el, haptic, formatDue, daysBetween } from './util.js';
 import * as S from './store.js';
 import { attachSortable, isDragging } from './drag.js';
+import { attachSwipe, closeSwipe, wasSwipe } from './swipe.js';
 import {
   toast, openSheet, confirmSheet, openDropup, dropupItem, field, editorFields,
   textInput, emojiPicker, nameWithEmoji, colorPicker, checkButton, sectionToggle,
+  applyFlash,
 } from './ui.js';
 
 const MAX_DEPTH = 2;   // drei Ebenen: 0, 1, 2
@@ -228,6 +230,7 @@ export function flatten(listId, { includeDone }) {
 }
 
 export function renderTodos(listId) {
+  closeSwipe();
   const l = S.list(listId);
   const host = $('#todo-list');
   const doneHost = $('#todos-done');
@@ -319,18 +322,36 @@ function todoRow({ todo: t, depth }, listId, isDark, { draggable }) {
       t.note && meta.length ? el('div', { class: 'row-note', text: t.note.split('\n')[0] }) : null,
     ]),
     checkButton({
-      value: t.done ? 1 : 0, target: 1, color: tint,
+      value: t.done ? 1 : 0, target: 1, color: tint, flashKey: t.id,
       label: t.done ? `${t.title} wieder öffnen` : `${t.title} abhaken`,
       onTap: () => { S.toggleTodo(t.id); renderTodos(listId); },
     }),
   ]);
 
+  // Gerade abgehakt? Dann einmal in der eigenen Farbe aufleuchten.
+  if (t.done) applyFlash(row, t.id);
+
   row.addEventListener('click', (e) => {
-    if (isDragging() || e.target.closest('.check')) return;
+    // wasSwipe() deckt beides ab: den Nachklapp einer Wischgeste und den
+    // Tipp, der nur einen offenen Wisch-Knopf geschlossen hat.
+    if (isDragging() || wasSwipe() || e.target.closest('.check, .swipe-action')) return;
     openTodoEditor(listId, t.id);
   });
 
-  return el('div', { class: 'sort-wrap todo-wrap', dataset: { id: t.id, depth: String(depth) } }, [row]);
+  const wrap = el('div', { class: 'sort-wrap todo-wrap', dataset: { id: t.id, depth: String(depth) } }, [row]);
+
+  /* Wischen nach rechts rückt ein bzw. aus – der Weg, den iOS-Nutzer von
+     Apple Erinnerungen kennen. Das Ziehen bleibt als zweiter Weg. */
+  if (draggable) {
+    attachSwipe(wrap, row, {
+      blocked: isDragging,
+      canIndent: () => S.canIndent(t.id, MAX_DEPTH),
+      canOutdent: () => S.canOutdent(t.id),
+      onIndent: () => { S.indentTodo(t.id, MAX_DEPTH); renderTodos(listId); },
+      onOutdent: () => { S.outdentTodo(t.id); renderTodos(listId); },
+    });
+  }
+  return wrap;
 }
 
 /* ---------- Aufgabe anlegen und bearbeiten ---------- */
@@ -365,11 +386,81 @@ export function openTodoEditor(listId, id, afterSave) {
         }));
       }
 
+      /* Unteraufgaben: der ausdrückliche Weg neben den Gesten. Beim Bearbeiten
+         wirken Änderungen sofort, beim Neuanlegen werden sie gesammelt und
+         nach dem Sichern angelegt. */
+      const pending = [];
+      const subHost = el('div', { class: 'sub-list' });
+      const subInput = el('input', {
+        class: 'input', type: 'text', placeholder: 'Unteraufgabe hinzufügen',
+        enterkeyhint: 'done', maxlength: 120,
+      });
+
+      const paintSubs = () => {
+        const kids = existing ? S.childrenOf(existing.id) : pending;
+        subHost.replaceChildren(...kids.map((k, i) => {
+          const done = !!k.done;
+          const line = el('div', { class: `sub-row${done ? ' is-done' : ''}` }, [
+            el('button', {
+              class: `sub-check${done ? ' on' : ''}`, type: 'button',
+              'aria-label': done ? `${k.title} wieder öffnen` : `${k.title} abhaken`,
+              onclick: () => {
+                if (existing) { S.toggleTodo(k.id); renderTodos(listId); }
+                else k.done = !k.done;
+                paintSubs();
+                haptic();
+              },
+            }),
+            el('span', { class: 'sub-title', text: k.title }),
+            el('button', {
+              class: 'sub-remove', type: 'button', 'aria-label': `${k.title} entfernen`,
+              html: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+              onclick: () => {
+                if (existing) { S.deleteTodo(k.id); renderTodos(listId); }
+                else pending.splice(i, 1);
+                paintSubs();
+                haptic();
+              },
+            }),
+          ]);
+          return line;
+        }));
+        subHost.hidden = kids.length === 0;
+      };
+
+      const addSub = () => {
+        const v = subInput.value.trim();
+        if (!v) return;
+        if (existing) {
+          const kid = S.addTodo(listId, { title: v, parent: existing.id });
+          // ans Ende der bisherigen Kinder
+          const sibs = S.childrenOf(existing.id).filter(c => c.id !== kid.id);
+          kid.order = (sibs.at(-1)?.order ?? existing.order) + 0.5;
+          S.reorderTodos(listId, flatten(listId, { includeDone: true }).map(x => ({
+            id: x.todo.id, parent: x.todo.parent,
+          })));
+          renderTodos(listId);
+        } else {
+          pending.push({ title: v, done: false });
+        }
+        subInput.value = '';
+        paintSubs();
+        haptic();
+      };
+      subInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); addSub(); }
+      });
+      subInput.addEventListener('blur', addSub);
+      paintSubs();
+      body._pendingSubs = pending;
+
       body.append(...editorFields({
         name: field('Name', title),
         color: field('Farbe', color.node),
         due: field('Fällig am', [due, quickDue]),
         note: field('Notiz', note),
+        subtasks: field('Unteraufgaben', [subHost, subInput],
+          existing ? null : 'Werden nach dem Sichern angelegt.'),
       }));
       body.append(
         existing ? el('button', {
@@ -399,11 +490,18 @@ export function openTodoEditor(listId, id, afterSave) {
         return { title: v, color: color.value, note: note.value.trim(), due: due.value };
       };
     },
-    onConfirm() {
+    onConfirm(body) {
       const fields = collect();
       if (!fields) return false;
-      if (existing) S.updateTodo(existing.id, fields);
-      else S.addTodo(listId, fields);
+      if (existing) {
+        S.updateTodo(existing.id, fields);
+      } else {
+        const created = S.addTodo(listId, fields);
+        // Beim Anlegen gesammelte Unteraufgaben jetzt anhängen
+        for (const p of body._pendingSubs || []) {
+          S.addTodo(listId, { title: p.title, done: p.done, parent: created.id });
+        }
+      }
       haptic(12);
       renderTodos(listId);
       afterSave?.();

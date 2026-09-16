@@ -156,10 +156,10 @@ function migrate(d) {
   const out = { ...emptyData(), ...d };
   out.settings = { ...DEFAULTS, ...(d.settings || {}) };
   out.settings.groups = { ...(d.settings?.groups || {}) };
-  out.habits = Array.isArray(d.habits) ? d.habits : [];
-  out.lists = Array.isArray(d.lists) ? d.lists : [];
-  out.todos = Array.isArray(d.todos) ? d.todos : [];
-  out.log = d.log && typeof d.log === 'object' ? d.log : {};
+  out.habits = sanitizeHabits(d.habits);
+  out.lists = sanitizeLists(d.lists);
+  out.todos = sanitizeTodos(d.todos, out.lists);
+  out.log = sanitizeLog(d.log, out.habits);
 
   out.settings.recentEmoji = Array.isArray(d.settings?.recentEmoji) ? [...d.settings.recentEmoji] : [];
 
@@ -188,6 +188,125 @@ function toSchema4(d) {
     if (typeof h.note !== 'string') h.note = '';
     if (!Array.isArray(h.days) || !h.days.length) h.days = [1, 2, 3, 4, 5];
   }
+}
+
+/* ---------- Einlesen absichern ----------
+   Eine Sicherungsdatei kann beschädigt sein oder von Hand bearbeitet worden.
+   Alles, was hereinkommt, wird deshalb geprüft und ergänzt; was sich nicht
+   retten lässt, fliegt raus, statt die App beim Start scheitern zu lassen. */
+
+const str = (v, fallback = '') => (typeof v === 'string' ? v : fallback);
+const posNum = (v, fallback) => {
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+function sanitizeHabits(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  return input.flatMap((h, i) => {
+    if (!h || typeof h !== 'object') return [];
+    const id = str(h.id) || uid();
+    if (seen.has(id)) return [];
+    seen.add(id);
+    const sched = ['day', 'days', 'week', 'month', 'daily'].includes(h.sched) ? h.sched : 'day';
+    const days = Array.isArray(h.days)
+      ? h.days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6)
+      : [];
+    return [{
+      ...h,
+      id,
+      name: str(h.name).trim() || 'Ohne Namen',
+      emoji: str(h.emoji, '⭐️'),
+      color: str(h.color, 'indigo'),
+      note: str(h.note),
+      unit: str(h.unit, 'count'),
+      unitLabel: str(h.unitLabel),
+      target: posNum(h.target, 1),
+      sched,
+      days: days.length ? days : [1, 2, 3, 4, 5],
+      created: /^\d{4}-\d{2}-\d{2}$/.test(h.created) ? h.created : today(),
+      order: Number.isFinite(h.order) ? h.order : i,
+    }];
+  });
+}
+
+function sanitizeLists(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  return input.flatMap((l, i) => {
+    if (!l || typeof l !== 'object') return [];
+    const id = str(l.id) || uid();
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return [{
+      ...l,
+      id,
+      name: str(l.name).trim() || 'Ohne Namen',
+      emoji: str(l.emoji, '📋'),
+      color: str(l.color, 'blue'),
+      order: Number.isFinite(l.order) ? l.order : i,
+    }];
+  });
+}
+
+function sanitizeTodos(input, lists) {
+  if (!Array.isArray(input)) return [];
+  const listIds = new Set(lists.map(l => l.id));
+  const seen = new Set();
+  const cleaned = input.flatMap((t, i) => {
+    if (!t || typeof t !== 'object') return [];
+    const id = str(t.id) || uid();
+    if (seen.has(id) || !listIds.has(t.listId)) return [];   // Aufgabe ohne Liste ist verloren
+    seen.add(id);
+    return [{
+      ...t,
+      id,
+      listId: t.listId,
+      title: str(t.title).trim() || 'Ohne Namen',
+      color: str(t.color),
+      note: str(t.note),
+      due: /^\d{4}-\d{2}-\d{2}$/.test(t.due) ? t.due : '',
+      done: !!t.done,
+      doneAt: str(t.doneAt),
+      parent: str(t.parent) || null,
+      order: Number.isFinite(t.order) ? t.order : i,
+    }];
+  });
+
+  // Elternverweise begradigen: auf sich selbst, ins Leere oder im Kreis
+  const byId = new Map(cleaned.map(t => [t.id, t]));
+  for (const t of cleaned) {
+    if (!t.parent) continue;
+    if (t.parent === t.id || !byId.has(t.parent)) { t.parent = null; continue; }
+    if (byId.get(t.parent).listId !== t.listId) { t.parent = null; continue; }
+    // Ring? Dann die Kette hier auftrennen.
+    const seenChain = new Set([t.id]);
+    let cur = byId.get(t.parent);
+    while (cur) {
+      if (seenChain.has(cur.id)) { t.parent = null; break; }
+      seenChain.add(cur.id);
+      cur = cur.parent ? byId.get(cur.parent) : null;
+    }
+  }
+  return cleaned;
+}
+
+function sanitizeLog(input, habits) {
+  if (!input || typeof input !== 'object') return {};
+  const ids = new Set(habits.map(h => h.id));
+  const out = {};
+  for (const [habitId, entries] of Object.entries(input)) {
+    if (!ids.has(habitId) || !entries || typeof entries !== 'object') continue;
+    const clean = {};
+    for (const [day, value] of Object.entries(entries)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      const n = typeof value === 'number' ? value : parseFloat(value);
+      if (Number.isFinite(n) && n > 0) clean[day] = Math.round(n * 100) / 100;
+    }
+    if (Object.keys(clean).length) out[habitId] = clean;
+  }
+  return out;
 }
 
 /**
@@ -367,6 +486,9 @@ export function setValue(habitId, key, value) {
   const entries = data.log[habitId] || (data.log[habitId] = {});
   if (v <= 0) delete entries[key];
   else entries[key] = v;
+  // Leere Verläufe gleich abräumen: sonst bliebe ein {} im Speicher stehen,
+  // das beim nächsten Laden verschwindet – Speichern und Laden wären ungleich.
+  if (!Object.keys(entries).length) delete data.log[habitId];
   save();
   return v;
 }
@@ -594,16 +716,41 @@ export function childrenOf(id) {
   return data.todos.filter(t => t.parent === id).sort((a, b) => a.order - b.order);
 }
 
-/** Alle Nachfahren, beliebig tief. */
-export function descendantsOf(id, acc = []) {
-  for (const c of childrenOf(id)) { acc.push(c); descendantsOf(c.id, acc); }
+/** Alle Nachfahren, beliebig tief.
+    `seen` bricht Ringe ab: zeigt eine Aufgabe (nach einem beschädigten Import)
+    auf sich selbst oder im Kreis, liefe die Rekursion sonst bis zum Absturz. */
+export function descendantsOf(id, acc = [], seen = new Set([id])) {
+  for (const c of childrenOf(id)) {
+    if (seen.has(c.id)) continue;
+    seen.add(c.id);
+    acc.push(c);
+    descendantsOf(c.id, acc, seen);
+  }
   return acc;
 }
 
+/**
+ * Alle Überaufgaben von unten nach oben.
+ * Die einzige Stelle, die nach oben läuft – so ist der Schutz gegen
+ * Ringverweise (nach einem beschädigten Import) nur einmal nötig statt an
+ * jeder Aufrufstelle.
+ */
+export function ancestorsOf(id, limit = 8) {
+  const out = [];
+  const seen = new Set([id]);
+  let cur = todo(id);
+  while (cur?.parent && out.length < limit) {
+    if (seen.has(cur.parent)) break;        // Ring – hier ist Schluss
+    seen.add(cur.parent);
+    cur = todo(cur.parent);
+    if (!cur) break;
+    out.push(cur);
+  }
+  return out;
+}
+
 export function depthOf(t) {
-  let d = 0, cur = t;
-  while (cur?.parent && d < 8) { cur = todo(cur.parent); d++; }
-  return d;
+  return t ? ancestorsOf(t.id).length : 0;
 }
 
 export function addTodo(listId, fields) {
@@ -651,16 +798,80 @@ export function toggleTodo(id, force) {
   t.doneAt = stamp;
   for (const d of descendantsOf(id)) { d.done = done; d.doneAt = stamp; }
 
-  // Überaufgaben nachziehen
-  let parent = t.parent ? todo(t.parent) : null;
-  while (parent) {
+  // Überaufgaben nachziehen – von innen nach außen, ringsicher
+  for (const parent of ancestorsOf(id)) {
     const kids = descendantsOf(parent.id);
     const allDone = kids.length > 0 && kids.every(k => k.done);
     if (allDone && !parent.done) { parent.done = true; parent.doneAt = stamp; }
     else if (!done && parent.done) { parent.done = false; parent.doneAt = ''; }
-    parent = parent.parent ? todo(parent.parent) : null;
   }
   save();
+}
+
+/** Kann diese Aufgabe eine Ebene tiefer? Nur wenn ein Vorgänger auf gleicher
+    Ebene existiert, der ihr Elternteil werden kann, und die Grenze hält. */
+export function canIndent(id, maxDepth = 2) {
+  const t = todo(id);
+  if (!t) return false;
+  const siblings = todosOf(t.listId).filter(x => (x.parent || null) === (t.parent || null));
+  const at = siblings.findIndex(x => x.id === id);
+  if (at <= 0) return false;                       // das erste Element hat keinen Vorgänger
+  const deepest = Math.max(0, ...descendantsOf(id).map(d => depthOf(d) - depthOf(t)));
+  return depthOf(t) + 1 + deepest <= maxDepth;
+}
+
+export function canOutdent(id) {
+  const t = todo(id);
+  return !!(t && t.parent);
+}
+
+/** Macht die Aufgabe zur Unteraufgabe ihres Vorgängers. */
+export function indentTodo(id, maxDepth = 2) {
+  if (!canIndent(id, maxDepth)) return false;
+  const t = todo(id);
+  const siblings = todosOf(t.listId).filter(x => (x.parent || null) === (t.parent || null));
+  const prev = siblings[siblings.findIndex(x => x.id === id) - 1];
+  t.parent = prev.id;
+  // Direkt hinter den bisherigen Kindern des neuen Elternteils einsortieren
+  const last = childrenOf(prev.id).filter(c => c.id !== id).at(-1);
+  t.order = (last ? last.order : prev.order) + 0.5;
+  normalizeOrder(t.listId);
+  save();
+  return true;
+}
+
+/** Hebt die Aufgabe eine Ebene an; nachfolgende Geschwister wandern zu ihr. */
+export function outdentTodo(id) {
+  if (!canOutdent(id)) return false;
+  const t = todo(id);
+  const parent = todo(t.parent);
+  const after = childrenOf(parent.id).filter(c => c.order > t.order);
+  t.parent = parent.parent || null;
+  t.order = parent.order + 0.5;
+  // Was unter dem alten Elternteil nach ihr kam, bleibt logisch bei ihr
+  for (const sib of after) sib.parent = t.id;
+  normalizeOrder(t.listId);
+  save();
+  return true;
+}
+
+/** Ränge wieder auf ganze Zahlen bringen, in sichtbarer Reihenfolge. */
+function normalizeOrder(listId) {
+  const all = todosOf(listId);
+  const byParent = new Map();
+  for (const t of all) {
+    const key = t.parent || '__root';
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(t);
+  }
+  let n = 0;
+  const walk = (key) => {
+    for (const t of (byParent.get(key) || []).sort((a, b) => a.order - b.order)) {
+      t.order = n++;
+      walk(t.id);
+    }
+  };
+  walk('__root');
 }
 
 /** Setzt Reihenfolge und Verschachtelung nach einem Zieh-Vorgang neu.
@@ -708,11 +919,17 @@ export function overview(ref = today()) {
   const withDue = openTodos.filter(t => t.due);
   const weekEnd = addDays(ref, 7);
 
-  const overdue = withDue.filter(t => t.due < ref);
-  const todayDue = withDue.filter(t => t.due === ref);
-  const tomorrow = withDue.filter(t => t.due === addDays(ref, 1));
+  /* Die Körbe werden nach Datum sortiert, nicht nach Listenreihenfolge:
+     bei „Überfällig" steht damit das Älteste oben, bei „Diese Woche" das
+     Nächste. Gleiches Datum behält die Reihenfolge der Liste. */
+  const byDue = (a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.order - b.order);
+  const bucket = (fn) => withDue.filter(fn).sort(byDue);
+
+  const overdue = bucket(t => t.due < ref);
+  const todayDue = bucket(t => t.due === ref);
+  const tomorrow = bucket(t => t.due === addDays(ref, 1));
   // „Diese Woche" meint die nächsten sieben Tage ohne heute und morgen.
-  const thisWeek = withDue.filter(t => t.due > addDays(ref, 1) && t.due <= weekEnd);
+  const thisWeek = bucket(t => t.due > addDays(ref, 1) && t.due <= weekEnd);
 
   const streaks = habitsAll
     .map(h => ({ habit: h, streak: currentStreak(h, ref) }))

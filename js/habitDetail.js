@@ -5,7 +5,7 @@
 import { $, el, num, addDays, parseKey, weekStart, formatLongDate,
          MONTHS_SHORT, WEEKDAYS_SHORT, haptic } from './util.js';
 import * as S from './store.js';
-import { openSheet, closeSheet, stepper, toast } from './ui.js';
+import { openSheet, closeSheet, stepper, toast, markFlash, applyFlash } from './ui.js';
 
 const HEATMAP_WEEKS = 26;
 const BAR_DAYS = 30;
@@ -83,6 +83,9 @@ function todayCard(h, key, tint, rerender) {
     onclick: () => {
       if (done) S.bumpBeyond(h.id, key);
       else S.bump(h.id, key);
+      // Wie in der Liste: Vormerken, die neu gebaute Karte leuchtet dann –
+      // aber nur, wenn das Ziel damit wirklich erreicht ist.
+      if (!done) markFlash(h.id);
       haptic(12);
       rerender();
     },
@@ -117,10 +120,12 @@ function todayCard(h, key, tint, rerender) {
     }));
   }
 
-  return el('div', { class: 'card' }, [
+  const card = el('div', { class: 'card', style: `--tint:${tint}` }, [
     el('h3', { text: periodic ? iv.label : 'Heute' }),
     ...rows,
   ]);
+  if (done) applyFlash(card, h.id);
+  return card;
 }
 
 /* ---------- Kennzahlen ---------- */

@@ -1,0 +1,676 @@
+/* Browser-Prüfungen im iPhone-Format.
+ *
+ *   npm i playwright && node test/browser.mjs
+ *
+ * Zwei Arten von Eingaben werden geprüft: mit dem Zeiger (schnell, deckt die
+ * Logik ab) und mit echten Berührungen über das Debug-Protokoll. Letzteres ist
+ * unverzichtbar – `touch-action` wirkt nur bei echten Berührungen, und genau
+ * dort ist das Sortieren per Ziehen schon einmal stillschweigend ausgefallen,
+ * während alle Zeiger-Prüfungen grün blieben.
+ */
+
+import { chromium, devices } from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const ROOT = path.resolve(import.meta.dirname, '..');
+const SHOTS = process.env.SHOTS || '';
+const CHROME = process.env.CHROME_PATH || undefined;
+
+/* ---------- kleiner Dateiserver ---------- */
+const MIME = {
+  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png',
+};
+const server = http.createServer((q, r) => {
+  let p = decodeURIComponent(q.url.split('?')[0]);
+  if (p === '/') p = '/index.html';
+  const f = path.join(ROOT, p);
+  if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); r.end(); return; }
+  r.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' });
+  r.end(fs.readFileSync(f));
+});
+await new Promise(r => server.listen(0, r));
+const BASE = `http://localhost:${server.address().port}/index.html`;
+
+const browser = await chromium.launch(CHROME ? { executablePath: CHROME } : {});
+const ctx = await browser.newContext({ ...devices['iPhone 14'], hasTouch: true, isMobile: true });
+const page = await ctx.newPage();
+const cdp = await ctx.newCDPSession(page);
+
+const errors = [];
+page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
+page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+
+/* ---------- Hilfen ---------- */
+const wait = (ms) => page.waitForTimeout(ms);
+const dump = () => page.evaluate(async () => JSON.parse((await import('/js/store.js')).exportJSON()));
+const overview = () => page.evaluate(async () => (await import('/js/store.js')).overview());
+const shot = (n) => (SHOTS ? page.screenshot({ path: `${SHOTS}/${n}.png` }) : Promise.resolve());
+
+/** Sichtbarer Aufgabenbaum als "A, __B, C" – Einrückung als zwei Unterstriche. */
+const tree = () => page.evaluate(() => [...document.querySelectorAll('#todo-list .todo-wrap')]
+  .map(n => `${'__'.repeat(Number(n.dataset.depth))}${n.querySelector('.row-title').textContent}`).join(', '));
+
+async function clearOverlays() {
+  for (let i = 0; i < 3; i++) {
+    const open = await page.evaluate(() =>
+      !!document.querySelector('#sheet-host:not([hidden]), #dropup-host:not([hidden])'));
+    if (!open) return;
+    await page.keyboard.press('Escape');
+    await wait(320);
+  }
+}
+
+let passed = 0, failed = 0;
+const step = async (name, fn) => {
+  try { await fn(); passed++; console.log(`  ok   ${name}`); }
+  catch (e) {
+    failed++;
+    /* Bei Playwright steht der Grund im Aufrufprotokoll ("intercepts pointer
+       events", "not visible"). Ohne ihn ist eine Zeitüberschreitung nicht zu
+       deuten – und genau das kostet beim Suchen die meiste Zeit. */
+    const lines = e.message.split('\n').map(l => l.trim()).filter(Boolean);
+    const why = lines.slice(1).find(l =>
+      /intercepts pointer|not visible|not stable|not enabled|outside of the viewport|resolved to \d/.test(l));
+    const msg = lines[0] + (why ? ` – ${why}` : '');
+    console.log(`  FAIL ${name}\n       ${msg}`);
+    errors.push(`${name}: ${msg}`);
+    if (process.env.VERBOSE) console.log(e.message.split('\n').slice(0, 14).map(l => '       | ' + l).join('\n'));
+  }
+  await clearOverlays();
+};
+const group = (t) => console.log(`\n=== ${t} ===`);
+
+/** Echte Berührung über das Debug-Protokoll – nur so greift touch-action. */
+const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', {
+  type,
+  touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 12, radiusY: 12, force: 1 }],
+});
+
+/** Mit dem Zeiger nach rechts wischen, ohne loszulassen. */
+async function swipeRight(title, dx) {
+  const row = page.locator('#todo-list .todo-wrap').filter({ hasText: title }).locator('.row').first();
+  const b = await row.boundingBox();
+  await page.mouse.move(b.x + 40, b.y + b.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) {
+    await page.mouse.move(b.x + 40 + (dx * i) / 8, b.y + b.height / 2);
+    await wait(18);
+  }
+  await wait(120);
+}
+
+/* ---------- Ausgangslage ---------- */
+const at = (d) => {
+  const x = new Date();
+  x.setDate(x.getDate() + d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+};
+
+async function seed() {
+  await page.goto(BASE);
+  await wait(350);
+  await page.evaluate((days) => {
+    localStorage.setItem('planer.v1', JSON.stringify({
+      v: 4,
+      settings: { doneHabits: 'hide', rowSize: 'medium', theme: 'system', dayStart: 0,
+                  doneTodos: 'hide', lastListId: 'l1', groups: {}, recentEmoji: [] },
+      habits: [
+        { id: 'h1', name: 'Wasser trinken', emoji: '💧', color: 'blue', unit: 'glass', target: 2, sched: 'day', days: [1,2,3,4,5], created: days[-30], order: 0 },
+        { id: 'h2', name: 'Vitamine', emoji: '💊', color: 'amber', unit: 'count', target: 1, sched: 'day', days: [1,2,3,4,5], created: days[-30], order: 1 },
+        { id: 'h3', name: 'Laufen', emoji: '🏃', color: 'green', unit: 'km', target: 5, sched: 'days', days: [1,3,5], created: days[-30], order: 2 },
+        { id: 'h4', name: 'Lesen', emoji: '📖', color: 'violet', unit: 'page', target: 60, sched: 'week', days: [1,2,3,4,5], created: days[-30], order: 3 },
+        { id: 'h5', name: 'Fenster putzen', emoji: '🪟', color: 'cyan', unit: 'count', target: 2, sched: 'month', days: [1], created: days[-60], order: 4 },
+      ],
+      log: { h1: { [days[-1]]: 2, [days[-2]]: 2 }, h4: { [days[0]]: 20 } },
+      lists: [
+        { id: 'l1', name: 'Einkaufen', emoji: '🛒', color: 'green', order: 0 },
+        { id: 'l2', name: 'Haushalt', emoji: '🏠', color: 'blue', order: 1 },
+      ],
+      todos: [
+        { id: 't1', listId: 'l1', title: 'Milch', color: '', note: '', due: days[-3], done: false, doneAt: '', parent: null, order: 0 },
+        { id: 't2', listId: 'l1', title: 'Brot', color: '', note: 'Vollkorn', due: days[0], done: false, doneAt: '', parent: null, order: 1 },
+        { id: 't3', listId: 'l1', title: 'Käse', color: '', note: '', due: days[1], done: false, doneAt: '', parent: null, order: 2 },
+        { id: 't4', listId: 'l2', title: 'Fenster putzen', color: '', note: '', due: days[4], done: false, doneAt: '', parent: null, order: 3 },
+        { id: 't5', listId: 'l2', title: 'Steuer sortieren', color: '', note: 'Belege 2025', due: '', done: false, doneAt: '', parent: null, order: 4 },
+        { id: 't6', listId: 'l2', title: 'Altpapier', color: '', note: '', due: days[-8], done: false, doneAt: '', parent: null, order: 5 },
+        { id: 't7', listId: 'l1', title: 'Butter', color: '', note: '', due: '', done: true, doneAt: new Date().toISOString(), parent: null, order: 6 },
+      ],
+    }));
+  }, Object.fromEntries([-60, -30, -8, -3, -2, -1, 0, 1, 4].map(d => [d, at(d)])));
+  await page.reload();
+  await wait(650);
+}
+
+await seed();
+
+/* ========================================================================== */
+group('Startseite');
+
+await step('startet auf der Startseite mit Begrüßung', async () => {
+  if (!await page.locator('#screen-home').isVisible()) throw new Error('nicht sichtbar');
+  const g = await page.locator('#home-greeting').innerText();
+  if (!/Gute[nr]? (Morgen|Tag|Abend|Nacht)/.test(g)) throw new Error(`Begrüßung: ${g}`);
+});
+
+await step('Habits-Zahlen stimmen mit dem Bestand', async () => {
+  const o = await overview();
+  const card = await page.locator('#home-scroll .home-card').first().innerText();
+  if (!card.includes(String(o.habits.done)) || !card.includes(String(o.habits.due))) {
+    throw new Error(card.replace(/\n/g, ' | '));
+  }
+  const dots = await page.locator('.home-dot').count();
+  if (dots !== o.habits.due) throw new Error(`${dots} Punkte, ${o.habits.due} fällig`);
+  const filled = await page.locator('.home-dot.filled').count();
+  if (filled !== o.habits.done) throw new Error(`${filled} gefüllt, ${o.habits.done} erledigt`);
+});
+
+await step('Habits nach Rhythmus, Summe passt', async () => {
+  const o = await overview();
+  const rows = await page.locator('.home-split-row').count();
+  if (rows !== o.habits.byInterval.length) throw new Error(`${rows} Zeilen, ${o.habits.byInterval.length} Intervalle`);
+  const sum = o.habits.byInterval.reduce((n, g) => n + g.due, 0);
+  if (sum !== o.habits.due) throw new Error(`Summe ${sum} ≠ fällig ${o.habits.due}`);
+});
+
+await step('Aufgaben-Kennzahlen rechnen auf', async () => {
+  const o = await overview();
+  const map = {};
+  for (const n of await page.locator('.home-stat').allInnerTexts()) {
+    const [v, l] = n.split('\n');
+    map[l] = Number(v);
+  }
+  const want = { insgesamt: o.todos.total, offen: o.todos.open, erledigt: o.todos.done, 'überfällig': o.todos.overdue.length };
+  for (const [l, v] of Object.entries(want)) if (map[l] !== v) throw new Error(`${l}: ${map[l]} statt ${v}`);
+  if (map.offen + map.erledigt !== map.insgesamt) throw new Error('Summe geht nicht auf');
+});
+
+await step('Überfällig antippen und dort abhaken', async () => {
+  const before = (await overview()).todos.overdue.length;
+  await page.locator('.home-bucket').filter({ hasText: 'Überfällig' }).tap();
+  await wait(450);
+  if (!await page.locator('.sheet-body .row').count()) throw new Error('Sheet leer');
+  await page.locator('.sheet-body .row .check').first().tap();
+  await wait(400);
+  const after = (await overview()).todos.overdue.length;
+  if (after !== before - 1) throw new Error(`${before} → ${after}`);
+});
+await shot('01-start');
+
+/* ========================================================================== */
+group('Suche');
+
+await step('findet über alle Bereiche, auch in Notizen', async () => {
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(300);
+  await page.locator('.home-tile').filter({ hasText: 'Suchen' }).tap();
+  await wait(450);
+  for (const [q, want] of [['wasser', 'Wasser trinken'], ['einkauf', 'Einkaufen'],
+                           ['vollkorn', 'Brot'], ['belege', 'Steuer sortieren'], ['dunkel', 'Design']]) {
+    await page.locator('#search-input').fill(q);
+    await wait(300);
+    const txt = await page.locator('#search-scroll').innerText();
+    if (!txt.includes(want)) throw new Error(`"${q}" findet "${want}" nicht`);
+  }
+});
+
+await step('Treffer hervorgehoben, Unsinn sauber gemeldet', async () => {
+  await page.locator('#search-input').fill('ein');
+  await wait(300);
+  if (!await page.locator('#search-scroll mark').count()) throw new Error('keine Hervorhebung');
+  await page.locator('#search-input').fill('xyzqwertz');
+  await wait(300);
+  if (!(await page.locator('#search-scroll').innerText()).includes('Nichts gefunden')) throw new Error('keine Meldung');
+  await page.locator('#search-back').tap();
+  await wait(300);
+});
+
+/* ========================================================================== */
+group('Editoren');
+
+const FIELDS = {
+  habit: ['NAME', 'FARBE', 'WIE OFT', 'WAS WIRD GEZÄHLT?', 'WIE VIELE'],
+  todo: ['NAME', 'FARBE', 'FÄLLIG AM', 'NOTIZ', 'UNTERAUFGABEN'],
+  list: ['NAME', 'FARBE'],
+};
+
+await step('Habit-Editor: Reihenfolge, Emoji in der Namenszeile', async () => {
+  await page.locator('.tab[data-goto=habits]').tap();
+  await wait(350);
+  await page.locator('#habit-add').tap();
+  await wait(500);
+  const labels = await page.locator('.sheet-body .field-label').allInnerTexts();
+  if (JSON.stringify(labels) !== JSON.stringify(FIELDS.habit)) throw new Error(labels.join(' > '));
+  const box = await page.locator('.emoji-box').boundingBox();
+  const name = await page.locator('.name-row .input').boundingBox();
+  if (box.x >= name.x || Math.abs(box.y - name.y) > 4) throw new Error('Emoji nicht links in derselben Zeile');
+});
+
+await step('Emoji-Vorschläge folgen dem Namen', async () => {
+  await page.locator('.tab[data-goto=habits]').tap();
+  await wait(300);
+  await page.locator('#habit-add').tap();
+  await wait(500);
+  await page.locator('.name-row .input').fill('Zähne putzen');
+  await wait(400);
+  if (!(await page.locator('.emoji-strip-label').first().innerText()).includes('Passend')) throw new Error('kein Vorschlags-Label');
+  const first = await page.locator('.emoji-strip').first().locator('.emoji-pick').first().innerText();
+  if (first !== '🪥') throw new Error(`erster Vorschlag ${first}`);
+  const scrollable = await page.locator('.emoji-strip').first().evaluate(n => n.scrollWidth > n.clientWidth + 1);
+  if (!scrollable) throw new Error('Zeile nicht wischbar');
+});
+
+await step('Aufgaben-Editor: kein Emoji, dafür Fälligkeit, Notiz, Unteraufgaben', async () => {
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(400);
+  await page.locator('#todo-add').tap();
+  await wait(500);
+  const labels = await page.locator('.sheet-body .field-label').allInnerTexts();
+  if (JSON.stringify(labels) !== JSON.stringify(FIELDS.todo)) throw new Error(labels.join(' > '));
+  if (await page.locator('.emoji-box').count()) throw new Error('Aufgabe hat ein Emoji-Feld');
+});
+
+await step('Listen-Editor gleich aufgebaut', async () => {
+  await page.locator('#list-menu').tap();
+  await wait(400);
+  await page.locator('.dropup-item', { hasText: 'Neue Liste' }).tap();
+  await wait(500);
+  const labels = await page.locator('.sheet-body .field-label').allInnerTexts();
+  if (JSON.stringify(labels) !== JSON.stringify(FIELDS.list)) throw new Error(labels.join(' > '));
+  if (!await page.locator('.name-row .emoji-box').count()) throw new Error('kein Emoji in der Namenszeile');
+});
+
+/* ========================================================================== */
+group('Unteraufgaben');
+
+// Frischer Stand: Die Startseite hakt weiter oben die überfällige "Milch" ab,
+// die dann ausgeblendet ist. Diese Gruppe braucht alle drei Zeilen.
+await seed();
+
+await step('kurzes Wischen zeigt den Knopf, Antippen rückt ein', async () => {
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(450);
+  await swipeRight('Brot', 60);
+  await page.mouse.up();
+  await wait(350);
+  const txt = await page.locator('.swipe-action').first().innerText();
+  if (!/Einrücken/.test(txt)) throw new Error(`Knopf: "${txt}"`);
+  await page.locator('.swipe-action').first().tap();
+  await wait(450);
+  if (!(await tree()).includes('__Brot')) throw new Error(await tree());
+});
+await shot('02-eingerueckt');
+
+await step('weites Wischen löst sofort aus', async () => {
+  await swipeRight('Käse', 150);
+  await page.mouse.up();
+  await wait(500);
+  if (!(await tree()).includes('__Käse')) throw new Error(await tree());
+});
+
+await step('eingerückte Zeile bietet Ausrücken an', async () => {
+  await swipeRight('Käse', 60);
+  await page.mouse.up();
+  await wait(350);
+  if (!/Ausrücken/.test(await page.locator('.swipe-action').first().innerText())) throw new Error('falscher Knopf');
+  await page.locator('.swipe-action').first().tap();
+  await wait(450);
+  if ((await tree()).includes('__Käse')) throw new Error('nicht ausgerückt');
+});
+
+await step('erste Zeile lässt sich nicht einrücken', async () => {
+  const before = await tree();
+  await swipeRight('Milch', 150);
+  await page.mouse.up();
+  await wait(450);
+  if (await tree() !== before) throw new Error('hat sich verändert');
+});
+
+await step('offener Knopf schließt beim Wischen woanders', async () => {
+  await swipeRight('Käse', 60);
+  await page.mouse.up();
+  await wait(300);
+  await swipeRight('Brot', 60);
+  await page.mouse.up();
+  await wait(350);
+  const open = await page.evaluate(() => document.querySelectorAll('.row.swiped').length);
+  if (open > 1) throw new Error(`${open} offen`);
+});
+
+await step('schließender Tipp löst sonst nichts aus', async () => {
+  await swipeRight('Käse', 60);
+  await page.mouse.up();
+  await wait(350);
+  const before = await dump();
+  // Auf den Abhak-Knopf einer anderen Zeile tippen: schließt nur.
+  await page.locator('#todo-list .todo-wrap').filter({ hasText: 'Brot' })
+    .first().locator('.check').tap();
+  await wait(350);
+  if (await page.locator('.swipe-action').count()) throw new Error('Knopf blieb offen');
+  if (await page.locator('.sheet-host:not([hidden])').count()) throw new Error('Editor ging auf');
+  const after = await dump();
+  const done = (d) => d.todos.filter(t => t.done).map(t => t.title).join(',');
+  if (done(before) !== done(after)) throw new Error(`abgehakt: ${done(before)} → ${done(after)}`);
+  // Der zweite Tipp wirkt dann wie immer.
+  await page.locator('#todo-list .todo-wrap').filter({ hasText: 'Brot' })
+    .first().locator('.check').tap();
+  await wait(350);
+  if (!(await dump()).todos.find(t => t.title === 'Brot').done) throw new Error('zweiter Tipp wirkungslos');
+});
+
+/* Der Stand ist jetzt verbraucht: "Brot" ist abgehakt und zieht als einziges
+   Kind seine Überaufgabe "Milch" mit, die damit ausgeblendet ist – richtig so,
+   aber die Editor-Prüfungen brauchen sie wieder. */
+await seed();
+await page.locator('.tab[data-goto=todos]').tap();
+await wait(450);
+
+await step('Unteraufgaben im Editor anlegen, abhaken, entfernen', async () => {
+  await page.locator('#todo-list .todo-wrap').filter({ hasText: 'Milch' }).first().locator('.row-body').tap();
+  await wait(500);
+  await page.locator('.sheet-body input[placeholder*="Unteraufgabe"]').fill('Sahne');
+  await page.keyboard.press('Enter');
+  await wait(400);
+  const row = page.locator('.sub-row').filter({ hasText: 'Sahne' });
+  if (!await row.count()) throw new Error('nicht angelegt');
+  await row.locator('.sub-check').tap();
+  await wait(300);
+  if (!(await row.getAttribute('class')).includes('is-done')) throw new Error('nicht abgehakt');
+  await row.locator('.sub-remove').tap();
+  await wait(400);
+  if (await page.locator('.sub-row').filter({ hasText: 'Sahne' }).count()) throw new Error('nicht entfernt');
+});
+await shot('03-editor-unteraufgaben');
+
+await step('beim Neuanlegen gesammelte Unteraufgaben landen am Ziel', async () => {
+  await page.locator('#todo-add').tap();
+  await wait(500);
+  await page.locator('.sheet-body input[type=text]').first().fill('Grillabend');
+  for (const s of ['Kohle', 'Salat']) {
+    await page.locator('.sheet-body input[placeholder*="Unteraufgabe"]').fill(s);
+    await page.keyboard.press('Enter');
+    await wait(250);
+  }
+  await page.locator('.sheet-head button.strong').tap();
+  await wait(550);
+  const t = await tree();
+  if (!/Grillabend, __Kohle, __Salat/.test(t)) throw new Error(t);
+});
+
+/* ========================================================================== */
+group('Aufleuchten beim Abhaken');
+
+await step('Aufgabe leuchtet und hört wieder auf', async () => {
+  const row = page.locator('#todo-list .todo-wrap').filter({ hasText: 'Käse' }).locator('.row').first();
+  await row.locator('.check').tap();
+  await wait(90);
+  if (!await page.evaluate(() => !!document.querySelector('.row.flash-done'))) throw new Error('leuchtet nicht');
+  await wait(1000);
+  if (await page.evaluate(() => !!document.querySelector('.row.flash-done'))) throw new Error('hört nicht auf');
+});
+
+await step('Habit leuchtet erst beim Erreichen des Ziels', async () => {
+  await page.locator('.tab[data-goto=habits]').tap();
+  await wait(400);
+  const row = () => page.locator('#habit-groups .row').filter({ hasText: 'Wasser' }).first();
+  await row().locator('.check').tap();          // 1 von 2
+  await wait(90);
+  if (await page.evaluate(() => !!document.querySelector('.row.flash-done'))) throw new Error('leuchtet beim Zwischenschritt');
+  await wait(350);
+  await row().locator('.check').tap();          // 2 von 2
+  await wait(90);
+  if (!await page.evaluate(() => !!document.querySelector('.row.flash-done'))) throw new Error('leuchtet nicht am Ziel');
+});
+
+await step('Detailansicht leuchtet genauso wie die Zeile', async () => {
+  // Gleiche Rückmeldung an beiden Orten: Was in der Liste leuchtet, muss auch
+  // hier leuchten – sonst fühlt sich derselbe Vorgang unterschiedlich an.
+  await seed();
+  await page.locator('.tab[data-goto=habits]').tap();
+  await wait(400);
+  await page.locator('#habit-groups .row').filter({ hasText: 'Vitamine' }).first().tap();
+  await wait(500);
+  const plus = page.locator('#screen-detail .card .btn').filter({ hasText: /Abhaken|^\+/ }).first();
+  await plus.tap();
+  await wait(90);
+  if (!await page.evaluate(() => !!document.querySelector('.card.flash-done'))) throw new Error('leuchtet nicht');
+  await wait(1000);
+  if (await page.evaluate(() => !!document.querySelector('.card.flash-done'))) throw new Error('hört nicht auf');
+  // Weiterzählen über das Ziel hinaus leuchtet nicht noch einmal.
+  await page.locator('#screen-detail .card .btn').filter({ hasText: 'zählen' }).first().tap();
+  await wait(90);
+  if (await page.evaluate(() => !!document.querySelector('.card.flash-done'))) throw new Error('leuchtet beim Weiterzählen');
+  await page.locator('#detail-back').tap();
+  await wait(350);
+});
+
+await step('Zurücksetzen leuchtet nicht', async () => {
+  await wait(1000);
+  const done = page.locator('#habit-groups .section-toggle').filter({ hasText: 'Erledigt' });
+  if (await done.count() && await done.getAttribute('aria-expanded') !== 'true') {
+    await done.tap();
+    await wait(350);
+  }
+  await page.locator('#habit-groups .row').filter({ hasText: 'Wasser' }).first().locator('.check').tap();
+  await wait(90);
+  if (await page.evaluate(() => !!document.querySelector('.row.flash-done'))) throw new Error('leuchtet');
+});
+
+/* ========================================================================== */
+group('Gesten mit echten Berührungen');
+/* touch-action wirkt nur hier – mit dem Zeiger blieben diese Fehler unsichtbar. */
+
+/* Wieder frischer Stand, aber mit genug Zeilen: Die erste Prüfung erwartet,
+   dass die Liste überhaupt scrollbar ist – drei Aufgaben passen auf den
+   Bildschirm und würden sie stillschweigend grün ausgehen lassen. */
+await seed();
+await page.evaluate(async () => {
+  const S = await import('/js/store.js');
+  for (let i = 1; i <= 14; i++) S.addTodo('l1', { title: `Posten ${i}` });
+  const T = await import('/js/todos.js');
+  T.renderTodos('l1');
+});
+await wait(400);
+
+await step('senkrecht wischen scrollt die Liste', async () => {
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(450);
+  await page.evaluate(() => { document.querySelector('#todos-scroll').scrollTop = 0; });
+  await wait(200);
+  const row = await page.locator('#todo-list .todo-wrap').first().locator('.row').boundingBox();
+  await touch('touchStart', row.x + 150, row.y + row.height / 2);
+  for (let i = 1; i <= 10; i++) { await touch('touchMove', row.x + 150, row.y + row.height / 2 - i * 22); await wait(16); }
+  await touch('touchEnd', 0, 0);
+  await wait(450);
+  const top = await page.evaluate(() => document.querySelector('#todos-scroll').scrollTop);
+  if (top < 30) throw new Error(`nur ${top} px gescrollt`);
+});
+
+await step('waagerecht wischen rückt ein', async () => {
+  await page.evaluate(() => { document.querySelector('#todos-scroll').scrollTop = 0; });
+  await wait(250);
+  const target = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#todo-list .todo-wrap')];
+    const i = rows.findIndex((n, k) => k > 0 && Number(n.dataset.depth) === 0);
+    return i > 0 ? rows[i].querySelector('.row-title').textContent : null;
+  });
+  if (!target) throw new Error('keine passende Zeile');
+  const b = await page.locator('#todo-list .todo-wrap').filter({ hasText: target }).first().locator('.row').boundingBox();
+  await touch('touchStart', b.x + 60, b.y + b.height / 2);
+  for (let i = 1; i <= 8; i++) { await touch('touchMove', b.x + 60 + i * 9, b.y + b.height / 2); await wait(16); }
+  await touch('touchEnd', 0, 0);
+  await wait(450);
+  if (!await page.locator('.swipe-action').count()) throw new Error('kein Knopf');
+  await page.evaluate(() => document.querySelector('.swipe-action')?.click());
+  await wait(450);
+});
+
+await step('halten und ziehen sortiert um, ohne zu scrollen', async () => {
+  await page.evaluate(() => { document.querySelector('#todos-scroll').scrollTop = 0; });
+  await wait(250);
+  const before = await tree();
+  const idx = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#todo-list .todo-wrap')];
+    for (let i = 0; i < rows.length - 1; i++) {
+      if (Number(rows[i + 1].dataset.depth) <= Number(rows[i].dataset.depth)) return i;
+    }
+    return -1;
+  });
+  if (idx < 0) throw new Error('keine kinderlose Zeile');
+  const b = await page.locator('#todo-list .todo-wrap').nth(idx).locator('.row').boundingBox();
+  await touch('touchStart', b.x + 150, b.y + b.height / 2);
+  await wait(650);
+  if (!await page.evaluate(() => document.body.classList.contains('is-dragging'))) throw new Error('nicht angehoben');
+  for (let i = 1; i <= 10; i++) { await touch('touchMove', b.x + 150, b.y + b.height / 2 + i * 14); await wait(16); }
+  await touch('touchEnd', 0, 0);
+  await wait(600);
+  if (await tree() === before) throw new Error(`Reihenfolge unverändert:\n${before}`);
+  const top = await page.evaluate(() => document.querySelector('#todos-scroll').scrollTop);
+  if (top > 20) throw new Error(`hat beim Ziehen gescrollt (${top} px)`);
+});
+
+await step('abhaken per Berührung', async () => {
+  const before = (await dump()).todos.filter(t => t.done).length;
+  const chk = await page.locator('#todo-list .todo-wrap').first().locator('.check').boundingBox();
+  await touch('touchStart', chk.x + chk.width / 2, chk.y + chk.height / 2);
+  await wait(60);
+  await touch('touchEnd', 0, 0);
+  await wait(450);
+  const after = (await dump()).todos.filter(t => t.done).length;
+  if (after === before) throw new Error('nichts abgehakt');
+});
+
+/* ========================================================================== */
+group('Datenerhalt');
+
+await step('Neustart verändert nichts', async () => {
+  const before = await dump();
+  await page.reload();
+  await wait(700);
+  const after = await dump();
+  delete before.exported; delete after.exported;
+  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  const diffs = [];
+  const walk = (x, y, p) => {
+    if (JSON.stringify(x) === JSON.stringify(y)) return;
+    if (typeof x !== 'object' || typeof y !== 'object' || !x || !y) { diffs.push(`${p}: ${JSON.stringify(x)} → ${JSON.stringify(y)}`); return; }
+    for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) walk(x[k], y[k], `${p}.${k}`);
+  };
+  walk(before, after, '');
+  throw new Error(diffs.slice(0, 4).join(' | '));
+});
+
+await step('Export und Import erhalten alles', async () => {
+  const before = await dump();
+  const round = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const json = S.exportJSON();
+    S.resetAll();
+    S.importJSON(json);
+    return JSON.parse(S.exportJSON());
+  });
+  delete before.exported; delete round.exported;
+  if (JSON.stringify(before) !== JSON.stringify(round)) throw new Error('Rundlauf verändert die Daten');
+  await page.reload();
+  await wait(600);
+});
+
+await step('ein zweites Fenster überschreibt nichts', async () => {
+  const second = await ctx.newPage();
+  await second.goto(BASE);
+  await wait(600);
+  await page.locator('.tab[data-goto=habits]').tap();
+  await wait(350);
+  await page.locator('#habit-groups .row').first().locator('.check').tap();
+  await wait(400);
+  const changed = await dump();
+  await second.close();
+  await wait(400);
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('planer.v1')));
+  if (JSON.stringify(changed.log) !== JSON.stringify(stored.log)) throw new Error('Stand überschrieben');
+});
+
+/* ========================================================================== */
+group('Layout und Bedienbarkeit');
+
+await step('kein Bildschirm scrollt seitlich', async () => {
+  const bad = [];
+  const scan = async (label) => {
+    const r = await page.evaluate(() => {
+      const out = [];
+      if (document.documentElement.scrollWidth > window.innerWidth + 1) out.push('Seite');
+      for (const sc of document.querySelectorAll('.screen.active .scroll')) {
+        if (sc.scrollWidth > sc.clientWidth + 1) out.push(`${sc.id} ${sc.scrollWidth}>${sc.clientWidth}`);
+      }
+      return out;
+    });
+    bad.push(...r.map(x => `${label}/${x}`));
+  };
+  for (const tab of ['home', 'habits', 'todos']) {
+    await page.locator(`.tab[data-goto=${tab}]`).tap();
+    await wait(320);
+    await scan(tab);
+  }
+  await page.locator('.tab[data-goto=habits]').tap();
+  await wait(250);
+  await page.locator('#habit-groups .row').first().tap();
+  await wait(450);
+  await scan('detail');
+  await page.locator('#detail-back').tap();
+  await wait(300);
+  if (bad.length) throw new Error(bad.join(', '));
+});
+
+await step('kein "null"/"undefined"/"NaN" im Text', async () => {
+  const found = [];
+  for (const tab of ['home', 'habits', 'todos']) {
+    await page.locator(`.tab[data-goto=${tab}]`).tap();
+    await wait(320);
+    const txt = await page.locator('.screen.active').innerText();
+    for (const bad of ['null', 'undefined', 'NaN', '[object']) if (txt.includes(bad)) found.push(`${tab}: ${bad}`);
+  }
+  if (found.length) throw new Error(found.join(', '));
+});
+
+await step('Tippziele mindestens 28px', async () => {
+  const small = await page.evaluate(() => {
+    const out = [];
+    for (const b of document.querySelectorAll('button:not([hidden]), input.emoji-box')) {
+      const r = b.getBoundingClientRect();
+      if (r.width === 0 || b.classList.contains('swipe-action')) continue;
+      if (r.width < 28 || r.height < 28) out.push(`${b.className || b.id}: ${Math.round(r.width)}x${Math.round(r.height)}`);
+    }
+    return out;
+  });
+  if (small.length) throw new Error(small.slice(0, 5).join(', '));
+});
+
+await step('dunkles Design auf allen Bildschirmen', async () => {
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(300);
+  await page.locator('.home-tile').filter({ hasText: 'Einstellungen' }).tap();
+  await wait(400);
+  await page.locator('.segmented button', { hasText: 'Dunkel' }).tap();
+  await wait(300);
+  await page.locator('#settings-back').tap();
+  await wait(400);
+  await shot('04-start-dunkel');
+  for (const tab of ['habits', 'todos']) {
+    await page.locator(`.tab[data-goto=${tab}]`).tap();
+    await wait(400);
+    await shot(`05-${tab}-dunkel`);
+  }
+});
+
+/* ========================================================================== */
+await browser.close();
+server.close();
+
+console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
+if (errors.length) {
+  console.log(`\nPROBLEME (${errors.length}):`);
+  for (const e of errors) console.log('  - ' + e);
+}
+process.exit(errors.length ? 1 : 0);
