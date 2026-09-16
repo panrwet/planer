@@ -192,6 +192,11 @@ Wer eine Migration ergänzt, zählt `SCHEMA` hoch und hängt einen Schritt an. D
 Tests prüfen die ganze Kette von einem Stand ohne Versionsnummer bis heute,
 dass keine Werte verloren gehen und dass ein zweiter Start nichts mehr ändert.
 
+Schlägt das Schreiben fehl – Speicher voll, Safari verweigert ihn –, sagt die
+App das deutlich und rät zur Sicherung. Vorher lief sie scheinbar normal weiter,
+und beim nächsten Start wäre alles seit dem letzten gelungenen Schreiben weg
+gewesen. Gemeldet wird nur der Wechsel, nicht jeder Versuch.
+
 Geschrieben wird nur, wenn in dieser Instanz wirklich etwas geändert wurde.
 Sonst würde ein zweites offenes Fenster (Safari-Tab neben der App vom
 Home-Bildschirm) beim Verlassen seinen alten Stand über die neueren Daten

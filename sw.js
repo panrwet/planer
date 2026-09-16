@@ -4,7 +4,7 @@
    aktualisieren. Nutzerdaten liegen in localStorage und sind hiervon
    vollständig unberührt. */
 
-const VERSION = 'planer-v6';
+const VERSION = 'planer-v7';
 const ASSETS = [
   './',
   './index.html',

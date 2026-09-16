@@ -173,6 +173,15 @@ document.addEventListener('visibilitychange', () => {
 });
 setInterval(checkDayRollover, 60000);
 
+/* Schlägt das Schreiben fehl – Speicher voll, Safari verweigert –, läuft die
+   App sonst scheinbar normal weiter und beim nächsten Start wäre alles seit
+   dem letzten gelungenen Schreiben weg. Also deutlich sagen und zur Sicherung
+   raten. Gemeldet wird nur der Wechsel, nicht jeder einzelne Versuch. */
+S.onWriteProblem((ok, reason) => {
+  if (ok) toast('Speichern klappt wieder.');
+  else toast(`${reason}: Änderungen werden gerade NICHT gespeichert. Bitte in den Einstellungen sichern.`, 9000);
+});
+
 /* Beim Verlassen der Seite sicher schreiben – der gebündelte Write könnte
    sonst im Hintergrund verloren gehen. */
 addEventListener('pagehide', () => S.flush());

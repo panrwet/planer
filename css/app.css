@@ -1397,4 +1397,8 @@ select.input {
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  /* Ausnahme: Das Aufleuchten ist ein reiner Farbwechsel, nichts bewegt sich.
+     Die Pauschalregel würde die einzige sichtbare Rückmeldung beim Abhaken
+     mit abräumen – es bleibt also, nur kürzer. */
+  .flash-done { animation-duration: .35s !important; }
 }

@@ -135,15 +135,35 @@ export function flush() {
   clearTimeout(writeTimer);
   if (!dirty) return true;
   const s = storage();
-  if (!s) return false;
+  if (!s) { reportWrite(false, 'kein Speicher'); return false; }
   try {
     s.setItem(KEY, JSON.stringify(data));
     dirty = false;
+    reportWrite(true);
     return true;
   } catch (err) {
     console.error('Speichern fehlgeschlagen', err);
+    reportWrite(false, err?.name === 'QuotaExceededError' ? 'Speicher voll' : 'Schreibfehler');
     return false;
   }
+}
+
+/* Ein fehlgeschlagener Schreibvorgang darf nicht still bleiben: Die App liefe
+   scheinbar normal weiter, und beim nächsten Start wäre alles seit dem letzten
+   gelungenen Schreiben verloren. Gemeldet wird nur der Übergang – sonst käme
+   bei jedem Tippen eine neue Warnung. */
+const writeWatchers = new Set();
+let writeOk = true;
+
+export function onWriteProblem(fn) {
+  writeWatchers.add(fn);
+  return () => writeWatchers.delete(fn);
+}
+
+function reportWrite(ok, reason) {
+  if (ok === writeOk) return;
+  writeOk = ok;
+  for (const fn of writeWatchers) fn(ok, reason);
 }
 
 export function isDirty() { return dirty; }

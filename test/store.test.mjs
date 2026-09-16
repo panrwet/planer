@@ -608,6 +608,39 @@ test('erledigte Aufgaben zählen nicht als überfällig', () => {
   assert.equal(S.overview().todos.overdue.length, 0);
 });
 
+test('fehlgeschlagenes Speichern wird gemeldet, nicht verschluckt', () => {
+  S._setData({});
+  const seen = [];
+  const off = S.onWriteProblem((ok, reason) => seen.push([ok, reason]));
+
+  const real = globalThis.localStorage;
+  let blocked = true;
+  globalThis.localStorage = {
+    getItem: () => null,
+    setItem: () => { if (blocked) { const e = new Error('voll'); e.name = 'QuotaExceededError'; throw e; } },
+    removeItem: () => {},
+  };
+
+  const l = S.addList({ name: 'L' });
+  S.addTodo(l.id, { title: 'A' });
+  assert.equal(S.flush(), false, 'Schreiben schlägt fehl');
+  assert.deepEqual(seen, [[false, 'Speicher voll']], 'einmal gemeldet');
+
+  // Weitere Fehlversuche melden nicht erneut – sonst käme bei jedem Tippen eine
+  // Warnung.
+  S.addTodo(l.id, { title: 'B' });
+  S.flush();
+  assert.equal(seen.length, 1, 'keine Wiederholung');
+
+  // Geht es wieder, wird auch das gesagt.
+  blocked = false;
+  assert.equal(S.flush(), true);
+  assert.deepEqual(seen[1], [true, undefined]);
+
+  off();
+  globalThis.localStorage = real;
+});
+
 test('Fälligkeits-Körbe nach Datum sortiert, nicht nach Listenreihenfolge', () => {
   S._setData({});
   const l = S.addList({ name: 'L' });
