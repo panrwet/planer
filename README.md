@@ -111,6 +111,17 @@ würde „0 von 2".
   zuletzt benutzten
 - Farbwähler mit 16 Tönen in zwei Reihen
 
+**Bedienbarkeit**
+- Der Abhak-Knopf ist je nach Zeilenhöhe 28–40 px groß; eine unsichtbare
+  Trefferfläche bringt ihn auf Apples Richtwert von 44 pt, ohne den Kreis
+  aufzublasen. `test/browser.mjs` prüft das über `elementFromPoint`, also an
+  dem, was wirklich getroffen wird – nicht an der gemessenen Knopfgröße
+- Farben erfüllen in beiden Designs mindestens 4,5:1 auch für den ruhigen
+  Tertiärtext; die Farbe ist nie das einzige Merkmal, Emoji und Name stehen
+  immer daneben
+- „Bewegung reduzieren" schaltet Animationen ab, das Aufleuchten bleibt: Es ist
+  ein reiner Farbwechsel und die einzige sichtbare Rückmeldung beim Abhaken
+
 **Einstellungen**
 - Abgehakte Habits ausblenden oder ausgrauen
 - Erledigte Aufgaben ausblenden oder anzeigen

@@ -634,6 +634,34 @@ await step('kein "null"/"undefined"/"NaN" im Text', async () => {
   if (found.length) throw new Error(found.join(', '));
 });
 
+await step('Abhak-Knopf trifft auf 44 pt, auch bei kleinen Zeilen', async () => {
+  // Der sichtbare Kreis ist kleiner als Apples Richtwert von 44 pt. Geprüft
+  // wird deshalb nicht seine Größe, sondern was beim Tippen wirklich getroffen
+  // wird – in allen drei Zeilenhöhen.
+  const bad = [];
+  for (const size of ['small', 'medium', 'large']) {
+    await page.evaluate((s) => { document.documentElement.dataset.size = s; }, size);
+    await page.locator('.tab[data-goto=todos]').tap();
+    await wait(320);
+    const miss = await page.evaluate(() => {
+      const out = [];
+      for (const c of document.querySelectorAll('#todo-list .check')) {
+        const r = c.getBoundingClientRect();
+        const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+        for (const [dx, dy] of [[-21, 0], [21, 0], [0, -21], [0, 21]]) {
+          const hit = document.elementFromPoint(cx + dx, cy + dy);
+          if (!hit || !hit.closest('.check')) out.push(`${dx},${dy}`);
+        }
+        break;    // eine Zeile genügt, alle sind gleich gebaut
+      }
+      return out;
+    });
+    if (miss.length) bad.push(`${size}: ${miss.join(' / ')}`);
+  }
+  await page.evaluate(() => { document.documentElement.dataset.size = 'medium'; });
+  if (bad.length) throw new Error(bad.join(' · '));
+});
+
 await step('Tippziele mindestens 28px', async () => {
   const small = await page.evaluate(() => {
     const out = [];
