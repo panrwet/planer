@@ -92,20 +92,17 @@ function hitRow(hit, isDark, query) {
   return row;
 }
 
-/** Hebt den Suchbegriff im Titel hervor, damit der Treffer erkennbar ist. */
+/** Hebt die getroffene Stelle im Titel hervor, damit der Treffer erkennbar ist.
+    Wo die Stelle liegt, weiß der Store – dort steckt auch die Toleranz für
+    Tippfehler, und die Regeln zum Falten der Umlaute stehen so nur einmal. */
 function highlight(text, query) {
   const node = el('div', { class: 'row-title' });
-  const fold = (s) => s.toLowerCase()
-    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss');
-  const hay = fold(text);
-  const needle = fold(query.trim().split(/\s+/)[0]);
-  const at = needle.length >= 2 ? hay.indexOf(needle) : -1;
-
-  if (at < 0) { node.textContent = text; return node; }
+  const span = S.matchSpan(text, query);
+  if (!span) { node.textContent = text; return node; }
   node.append(
-    text.slice(0, at),
-    el('mark', { text: text.slice(at, at + needle.length) }),
-    text.slice(at + needle.length),
+    text.slice(0, span.at),
+    el('mark', { text: text.slice(span.at, span.at + span.len) }),
+    text.slice(span.at + span.len),
   );
   return node;
 }

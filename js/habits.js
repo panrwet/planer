@@ -6,7 +6,7 @@ import { attachSortable, isDragging } from './drag.js';
 import {
   toast, openSheet, confirmSheet, field, editorFields, textInput, emojiPicker,
   nameWithEmoji, colorPicker, stepper, chipGroup, checkButton, sectionToggle,
-  applyFlash,
+  flashRow, collapseAway, paintCheck,
 } from './ui.js';
 
 /* Reihenfolge der Gruppen von oben nach unten. */
@@ -82,7 +82,25 @@ function groupSection(id, label, items, key, dimDone, sortable) {
   return el('div', { class: 'group-section' }, [toggle, list]);
 }
 
+/* Eine Habit-Zeile wird genauso behandelt wie eine Aufgabenzeile: einmal
+   gebaut, danach nur noch nachgefüllt. Beim Zählen ist das besonders sichtbar –
+   der Fortschrittsring wandert von 1/3 auf 2/3, statt zu springen, weil der
+   Knopf derselbe bleibt. */
 function habitRow(h, key, dimIfDone) {
+  const row = el('div', { class: 'row tinted tappable' });
+  const wrap = el('div', { class: 'sort-wrap', dataset: { id: h.id } }, [row]);
+  fillHabitRow(row, h, key, dimIfDone);
+
+  // Ein Tipp auf die Zeile öffnet die Details – außer der Tipp beendet ein Ziehen.
+  row.addEventListener('click', (e) => {
+    if (isDragging() || e.target.closest('.check')) return;
+    onOpenDetail(h.id);
+  });
+  return wrap;
+}
+
+/** Füllt eine Habit-Zeile mit dem aktuellen Stand – neu gebaut oder aufgefrischt. */
+function fillHabitRow(row, h, key, dimIfDone) {
   const value = S.progressIn(h, key);
   const done = value >= h.target;
   const outOfPlan = !S.showsOn(h, key);
@@ -90,34 +108,69 @@ function habitRow(h, key, dimIfDone) {
   const c = S.colorOf(h.color);
   const tint = isDark ? c.dark : c.light;
 
-  const row = el('div', {
-    class: `row tinted tappable${done || outOfPlan ? ' is-done' : ''}${dimIfDone ? ' dimmed' : ''}`,
-    style: S.tintStyle(h.color, isDark),
-  }, [
-    el('div', { class: 'row-emoji', text: h.emoji || '•' }),
-    el('div', { class: 'row-body' }, [
-      el('div', { class: 'row-title', text: h.name }),
-      el('div', { class: 'row-meta' }, metaParts(h, key, value, outOfPlan)),
-    ]),
-    // Abhaken sitzt rechts – dort liegt der Daumen.
-    checkButton({
-      value, target: h.target, color: tint, flashKey: h.id,
-      label: done ? `${h.name} zurücksetzen` : `${h.name} abhaken`,
-      onTap: () => { S.bump(h.id, key); renderHabits(); },
-      onHold: () => { S.unbump(h.id, key); renderHabits(); },
-    }),
+  row.className = `row tinted tappable${done || outOfPlan ? ' is-done' : ''}${dimIfDone ? ' dimmed' : ''}`;
+  row.setAttribute('style', S.tintStyle(h.color, isDark));
+
+  const head = el('div', { class: 'row-emoji', text: h.emoji || '•' });
+  const body = el('div', { class: 'row-body' }, [
+    el('div', { class: 'row-title', text: h.name }),
+    el('div', { class: 'row-meta' }, metaParts(h, key, value, outOfPlan)),
   ]);
 
-  // Gerade das Ziel erreicht? Dann einmal in der eigenen Farbe aufleuchten.
-  if (done) applyFlash(row, h.id);
+  const altHead = row.querySelector('.row-emoji');
+  const altBody = row.querySelector('.row-body');
+  if (altHead) altHead.replaceWith(head); else row.append(head);
+  if (altBody) altBody.replaceWith(body); else row.append(body);
 
-  // Ein Tipp auf die Zeile öffnet die Details – außer der Tipp beendet ein Ziehen.
-  row.addEventListener('click', (e) => {
-    if (isDragging() || e.target.closest('.check')) return;
-    onOpenDetail(h.id);
-  });
+  // Abhaken sitzt rechts – dort liegt der Daumen. Der Knopf bleibt derselbe.
+  const label = done ? `${h.name} zurücksetzen` : `${h.name} abhaken`;
+  const check = row.querySelector('.check');
+  if (check) paintCheck(check, { value, target: h.target, color: tint, label });
+  else row.append(checkButton({
+    value, target: h.target, color: tint, label,
+    onTap: () => countFrom(row, h.id, key, dimIfDone, false),
+    onHold: () => countFrom(row, h.id, key, dimIfDone, true),
+  }));
+}
 
-  return el('div', { class: 'sort-wrap', dataset: { id: h.id } }, [row]);
+/**
+ * Zählen, ohne die Liste neu zu bauen.
+ *
+ * Der häufige Fall ist ein Zwischenschritt (1 von 3) – da bleibt alles, wo es
+ * ist, und nur die eine Zeile zieht nach. Erst wenn das Ziel erreicht oder
+ * wieder unterschritten wird, wechselt das Habit die Gruppe; dann wird nach dem
+ * Leuchten neu geordnet.
+ */
+function countFrom(row, id, key, dimIfDone, zurueck) {
+  const vorher = S.isDoneOn(S.habit(id), key);
+  if (zurueck) S.unbump(id, key); else S.bump(id, key);
+
+  const h = S.habit(id);
+  if (!h) { renderHabits(); return; }
+  fillHabitRow(row, h, key, dimIfDone);
+
+  const nachher = S.isDoneOn(h, key);
+  if (nachher === vorher) { updateGroupCounts(); return; }
+
+  // Ausgegraute Habits bleiben stehen – dann genügt das Leuchten.
+  if (dimIfDone) {
+    if (nachher) flashRow(row);
+    updateGroupCounts();
+    return;
+  }
+
+  if (!nachher) { renderHabits(); return; }     // zurück in seine Gruppe einsortieren
+  flashRow(row, () => collapseAway([row.parentElement], () => renderHabits()));
+}
+
+/** Zieht nur die Zähler an den Gruppen-Überschriften nach. */
+function updateGroupCounts() {
+  for (const toggle of $('#habit-groups').querySelectorAll('.section-toggle')) {
+    const list = toggle.nextElementSibling;
+    const n = list ? list.querySelectorAll('.sort-wrap').length : 0;
+    const badge = toggle.querySelector('.section-count');
+    if (badge) badge.textContent = String(n);
+  }
 }
 
 /** Wochentage kurz: alle sieben heißen schlicht "Jeden Tag". */

@@ -445,36 +445,116 @@ export function consumeFlash(key) {
   return fresh;
 }
 
-/** Setzt das Aufleuchten und räumt die Klasse danach wieder ab – sonst bliebe
-    sie an der Zeile hängen und die nächste Prüfung sähe ein Dauerleuchten. */
-export function applyFlash(row, key) {
-  if (!consumeFlash(key)) return;
+/**
+ * Lässt eine Zeile aufleuchten und räumt die Klasse danach wieder ab – sonst
+ * bliebe sie hängen und die nächste Prüfung sähe ein Dauerleuchten.
+ * @param {() => void} [after] läuft, wenn das Leuchten durch ist. Wer die Zeile
+ *   danach verschwinden lässt, hängt sich hier ein: Sonst fällt sie mitten im
+ *   Leuchten zusammen und die Rückmeldung ist weg, bevor man sie gesehen hat.
+ */
+export function flashRow(row, after) {
+  if (!row) { after?.(); return; }
+  row.classList.remove('flash-done');
+  void row.offsetWidth;                      // neu starten, auch wenn es noch läuft
   row.classList.add('flash-done');
-  row.addEventListener('animationend', () => row.classList.remove('flash-done'), { once: true });
-  // Falls Animationen abgeschaltet sind, feuert animationend nicht.
-  setTimeout(() => row.classList.remove('flash-done'), 900);
+
+  let fertig = false;
+  const ende = () => {
+    if (fertig) return;
+    fertig = true;
+    row.classList.remove('flash-done');
+    after?.();
+  };
+  row.addEventListener('animationend', ende, { once: true });
+  // Ohne Animationen ("Bewegung reduzieren") feuert animationend zu früh oder
+  // gar nicht – der Rückfall hält die Reihenfolge trotzdem ein.
+  setTimeout(ende, 780);
+}
+
+/** Lässt Zeilen zusammenfallen und entfernt sie danach – gemeinsam genutzt von
+    Aufgaben und Habits, damit Abhaken sich überall gleich anfühlt. */
+export function collapseAway(wraps, done) {
+  const list = wraps.filter(Boolean);
+  if (!list.length) { done?.(); return; }
+  for (const w of list) w.style.height = `${w.offsetHeight}px`;
+  void list[0].offsetHeight;                 // Höhe festschreiben, bevor animiert wird
+  for (const w of list) w.classList.add('leaving');
+
+  let offen = list.length;
+  const fertig = () => { if (--offen === 0) done?.(); };
+  for (const w of list) {
+    let weg = false;
+    const raus = () => { if (weg) return; weg = true; w.remove(); fertig(); };
+    w.addEventListener('transitionend', raus, { once: true });
+    setTimeout(raus, 420);                   // ohne Animationen feuert transitionend nicht
+  }
+}
+
+/** Dasselbe, aber nur wenn dafür vorgemerkt wurde. Das brauchen die Ansichten,
+    die ihre Zeilen beim Aktualisieren austauschen – die neue Zeile holt sich
+    die Vormerkung ab. Wo eine Zeile bestehen bleibt, genügt flashRow(). */
+export function applyFlash(row, key) {
+  if (consumeFlash(key)) flashRow(row);
+}
+
+/* Das Innere des Abhak-Knopfes wird einmal geparst und danach nur noch
+   geklont. Vorher stand hier ein innerHTML je Zeile – also ein Lauf des
+   HTML-Parsers je Zeile, und das war bei 800 Aufgaben allein die Hälfte der
+   gesamten Zeichenzeit. Veränderlich ist nur der Fortschritt. */
+const RING_R = 15.5;                  // Radius des Fortschrittsrings
+const RING_LEN = 2 * Math.PI * RING_R;
+
+let CHECK_TEMPLATE = null;
+function checkTemplate() {
+  if (CHECK_TEMPLATE) return CHECK_TEMPLATE;
+  const R = RING_R;
+  const circ = RING_LEN;
+  const t = document.createElement('template');
+  t.innerHTML = `<span class="fill"></span>`
+    + `<svg class="ring" viewBox="0 0 36 36">`
+    + `<circle class="track" cx="18" cy="18" r="${R}"></circle>`
+    + `<circle class="prog" cx="18" cy="18" r="${R}" stroke-dasharray="${circ.toFixed(2)}"></circle>`
+    + `</svg>`;
+  CHECK_TEMPLATE = t.content;
+  return CHECK_TEMPLATE;
 }
 
 /** Runder Abhak-Button mit Fortschrittsring. */
 export function checkButton({ value, target, color, onTap, onHold, label, flashKey }) {
+  const btn = el('button', { class: 'check', type: 'button' });
+  btn.append(checkTemplate().cloneNode(true));
+  paintCheck(btn, { value, target, color, label });
+
+  attachTapHold(btn, () => {
+    // Vormerken, bevor neu gezeichnet wird. Ob wirklich geleuchtet wird,
+    // entscheidet die neue Zeile: nur wenn sie dann auch erledigt ist. Wo die
+    // Zeile bestehen bleibt, wird flashKey weggelassen und direkt geleuchtet.
+    if (flashKey && value < target) markFlash(flashKey);
+    onTap();
+  }, onHold);
+  return btn;
+}
+
+/**
+ * Bringt einen bestehenden Knopf auf den neuen Stand, statt ihn zu ersetzen.
+ * Das ist der Unterschied zwischen einem springenden und einem laufenden
+ * Fortschrittsring: Ein `transition` wirkt nur auf einem Element, das schon da
+ * war. Solange der Knopf über das Auffrischen hinweg derselbe bleibt, wandert
+ * der Ring weich von 1/3 auf 2/3.
+ */
+export function paintCheck(btn, { value, target, color, label }) {
   const done = value >= target;
   const pct = target > 0 ? Math.min(1, value / target) : 0;
-  const R = 15.5;
-  const circ = 2 * Math.PI * R;
 
-  const btn = el('button', {
-    class: `check${done ? ' is-done' : ''}`, type: 'button', 'aria-label': label,
-    style: color ? `--tint:${color}` : null,
-  });
-  btn.innerHTML = `
-    <span class="fill"></span>
-    <svg class="ring" viewBox="0 0 36 36">
-      <circle class="track" cx="18" cy="18" r="${R}"></circle>
-      <circle class="prog" cx="18" cy="18" r="${R}"
-        stroke-dasharray="${circ.toFixed(2)}"
-        stroke-dashoffset="${(circ * (1 - pct)).toFixed(2)}"></circle>
-    </svg>`;
+  btn.classList.toggle('is-done', done);
+  btn.setAttribute('aria-label', label);
+  if (color) btn.style.setProperty('--tint', color);
+  else btn.style.removeProperty('--tint');
 
+  btn.querySelector('.prog').setAttribute('stroke-dashoffset', (RING_LEN * (1 - pct)).toFixed(2));
+
+  btn.querySelector('.mark')?.remove();
+  btn.querySelector('.count')?.remove();
   if (done) {
     const mark = el('span', { class: 'mark' });
     mark.append(svg(ICON.check));
@@ -482,14 +562,6 @@ export function checkButton({ value, target, color, onTap, onHold, label, flashK
   } else if (value > 0 && target > 1) {
     btn.append(el('span', { class: 'count', text: String(value) }));
   }
-
-  attachTapHold(btn, () => {
-    // Vormerken, bevor neu gezeichnet wird. Ob wirklich geleuchtet wird,
-    // entscheidet die neue Zeile: nur wenn sie dann auch erledigt ist.
-    if (!done) markFlash(flashKey);
-    onTap();
-  }, onHold);
-  return btn;
 }
 
 /** Tippen vs. Gedrückthalten, ohne dass Scrollen als Tipp durchgeht. */

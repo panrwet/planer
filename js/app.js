@@ -8,7 +8,7 @@ import { renderDetail } from './habitDetail.js';
 import {
   renderTodos, renderListBar, openListMenu, openListEditor, openTodoEditor, bindListSelect,
 } from './todos.js';
-import { renderSettings, bindApply, flashSetting } from './settings.js';
+import { renderSettings, renderTrash, bindApply, bindSettingsNavigate, flashSetting } from './settings.js';
 import { renderHome, bindNavigate as bindHomeNav } from './home.js';
 import { renderSearch, clearSearch, bindNavigate as bindSearchNav } from './search.js';
 import { warmUp as warmEmoji } from './emoji.js';
@@ -32,6 +32,7 @@ function applyAppearance() {
   // In JS brauchen wir das aufgelöste Ergebnis, um die richtige Farbstufe zu wählen.
   root.dataset.resolved = set.theme === 'dark' || (set.theme === 'system' && darkQuery.matches) ? 'dark' : 'light';
   root.dataset.size = set.rowSize;
+  root.dataset.tint = set.saturation;
 
   const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
   for (const m of $$('meta[name="theme-color"]')) m.setAttribute('content', bg);
@@ -50,6 +51,7 @@ const SCREENS = {
   detail: '#screen-detail',
   todos: '#screen-todos',
   settings: '#screen-settings',
+  trash: '#screen-trash',
 };
 
 function show(screen, arg) {
@@ -90,9 +92,11 @@ function renderCurrent() {
       renderDetail(view.habitId, () => { renderDetail(view.habitId, renderCurrent); });
       break;
     case 'todos':
-      renderListBar(view.listId);
+      // renderTodos zeichnet die Listen-Leiste mit – die Zähler dort und in
+      // der Kopfzeile sollen nie auseinanderlaufen.
       renderTodos(view.listId);
       break;
+    case 'trash': renderTrash(); break;
     case 'settings':
       renderSettings();
       if (view.settingId) {
@@ -120,6 +124,7 @@ function navigate(where, arg) {
 }
 bindHomeNav(navigate);
 bindSearchNav(navigate);
+bindSettingsNavigate(navigate);
 
 /* ---------- Bedienelemente ---------- */
 
@@ -130,6 +135,7 @@ for (const b of $$('#tabbar .tab')) {
 $('#search-back').addEventListener('click', () => show('home'));
 $('#search-clear').addEventListener('click', clearSearch);
 $('#settings-back').addEventListener('click', () => show('home'));
+$('#trash-back').addEventListener('click', () => show('settings'));
 
 $('#habit-add').addEventListener('click', () => openHabitEditor(null, () => renderHabits()));
 

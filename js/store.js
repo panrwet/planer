@@ -4,7 +4,12 @@
 import { uid, todayKey, addDays, addMonths, weekdayOf, weekStart, monthStart, monthDays, clamp } from './util.js';
 
 const KEY = 'planer.v1';
-const SCHEMA = 4;
+const SCHEMA = 5;
+
+/* Papierkorb: Löschen ist umkehrbar, aber nicht ewig. Nach dieser Frist räumt
+   die App von selbst auf, damit der Speicher nicht still zuwächst. */
+const TRASH_DAYS = 30;
+const TRASH_MAX = 200;
 
 /* Auswahlfarben. Helligkeit, Sättigung und Kontrast gegen beide Untergründe
    sind geprüft; die Farbe ist nie das einzige Erkennungsmerkmal – Emoji und
@@ -71,10 +76,11 @@ export const DEFAULTS = {
   lastListId: '',       // Liste, die der Todos-Reiter direkt öffnet
   groups: {},           // Häufigkeits-Gruppen: id -> aufgeklappt (true/false)
   recentEmoji: [],      // zuletzt gewählte Emojis, neuestes zuerst
+  saturation: 'normal', // 'off' | 'soft' | 'normal' | 'strong' – wie kräftig getönt wird
 };
 
 function emptyData() {
-  return { v: SCHEMA, settings: { ...DEFAULTS }, habits: [], log: {}, lists: [], todos: [] };
+  return { v: SCHEMA, settings: { ...DEFAULTS }, habits: [], log: {}, lists: [], todos: [], trash: [] };
 }
 
 /* ---------- Persistenz ---------- */
@@ -106,7 +112,9 @@ export function load() {
       // Eine gelaufene Migration muss festgeschrieben werden. Sonst bleibt der
       // alte Stand liegen, die Migration läuft bei jedem Start erneut und
       // vergibt dabei jedes Mal neue Kennungen.
-      if (fromVersion < SCHEMA) {
+      // Abgelaufene Papierkorb-Einträge beim Start wegräumen.
+      const dropped = pruneTrash();
+      if (fromVersion < SCHEMA || dropped) {
         dirty = true;
         flush();
       }
@@ -180,6 +188,7 @@ function migrate(d) {
   out.lists = sanitizeLists(d.lists);
   out.todos = sanitizeTodos(d.todos, out.lists);
   out.log = sanitizeLog(d.log, out.habits);
+  out.trash = sanitizeTrash(d.trash);
 
   out.settings.recentEmoji = Array.isArray(d.settings?.recentEmoji) ? [...d.settings.recentEmoji] : [];
 
@@ -312,6 +321,43 @@ function sanitizeTodos(input, lists) {
   return cleaned;
 }
 
+/* Ein Papierkorb-Eintrag hält alles beisammen, was zum Wiederherstellen nötig
+   ist – bei einer Liste also auch ihre Aufgaben, bei einem Habit sein Verlauf.
+   Kaputte Einträge fliegen raus statt die App zu beschädigen. */
+function sanitizeTrash(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  return input.flatMap((e) => {
+    if (!e || typeof e !== 'object') return [];
+    if (!['habit', 'list', 'todo'].includes(e.kind)) return [];
+    const id = str(e.id) || uid();
+    if (seen.has(id)) return [];
+    seen.add(id);
+    const p = e.payload && typeof e.payload === 'object' ? e.payload : {};
+    const payload =
+      e.kind === 'habit' ? { habit: p.habit && typeof p.habit === 'object' ? p.habit : null,
+                             log: p.log && typeof p.log === 'object' ? p.log : {} }
+      : e.kind === 'list' ? { list: p.list && typeof p.list === 'object' ? p.list : null,
+                              todos: Array.isArray(p.todos) ? p.todos.filter(t => t && typeof t === 'object') : [] }
+      : { todos: Array.isArray(p.todos) ? p.todos.filter(t => t && typeof t === 'object') : [] };
+
+    if (e.kind === 'habit' && !payload.habit) return [];
+    if (e.kind === 'list' && !payload.list) return [];
+    if (e.kind === 'todo' && !payload.todos.length) return [];
+
+    return [{
+      id,
+      kind: e.kind,
+      at: str(e.at) || new Date().toISOString(),
+      title: str(e.title).trim() || 'Ohne Namen',
+      emoji: str(e.emoji),
+      color: str(e.color),
+      detail: str(e.detail),
+      payload,
+    }];
+  });
+}
+
 function sanitizeLog(input, habits) {
   if (!input || typeof input !== 'object') return {};
   const ids = new Set(habits.map(h => h.id));
@@ -411,17 +457,17 @@ export function colorOf(id) {
   return COLORS.find(c => c.id === key) || COLORS.find(c => c.id === 'indigo');
 }
 
-/** CSS-Variablen für eine Zeile/Karte in der Objektfarbe.
-    --tint      = die Farbe selbst (für Ringe, Balken, Zellen)
-    --tint-soft = sehr blasse Variante als Emoji-Hintergrund
-    Im dunklen Modus greift eine eigene Stufe, keine automatische Umkehr. */
+/**
+ * Setzt `--tint` – die Objektfarbe selbst. Wie stark daraus getönt wird,
+ * entscheidet allein das Stylesheet über `--tint-bg`, `--tint-edge` und
+ * `--tint-chip`; die hängen an der Einstellung zur Sättigung. Früher rechnete
+ * diese Funktion die blasse Variante selbst aus und hatte die Hintergrundfarbe
+ * fest verdrahtet – damit ließ sich die Stärke nirgends mehr ändern.
+ * Im dunklen Modus greift eine eigene Stufe, keine automatische Umkehr.
+ */
 export function tintStyle(colorId, isDark) {
   const c = colorOf(colorId);
-  const base = isDark ? c.dark : c.light;
-  const soft = isDark
-    ? `color-mix(in oklab, ${base} 20%, #1a1a1e)`
-    : `color-mix(in oklab, ${base} 12%, #ffffff)`;
-  return `--tint:${base};--tint-soft:${soft}`;
+  return `--tint:${isDark ? c.dark : c.light}`;
 }
 
 /* ---------- Habits ---------- */
@@ -477,7 +523,16 @@ export function reorderHabits(ids) {
 }
 
 export function deleteHabit(id) {
-  data.habits = data.habits.filter(h => h.id !== id);
+  const h = habit(id);
+  if (!h) return;
+  const log = data.log[id] || {};
+  const days = Object.keys(log).length;
+  toTrash({
+    kind: 'habit', title: h.name, emoji: h.emoji, color: h.color,
+    detail: days ? `${days} ${days === 1 ? 'erfasster Tag' : 'erfasste Tage'}` : 'ohne Verlauf',
+    payload: { habit: { ...h }, log: { ...log } },
+  });
+  data.habits = data.habits.filter(x => x.id !== id);
   delete data.log[id];
   save();
 }
@@ -716,7 +771,15 @@ export function reorderLists(ids) {
 }
 
 export function deleteList(id) {
-  data.lists = data.lists.filter(l => l.id !== id);
+  const l = list(id);
+  if (!l) return;
+  const mine = data.todos.filter(t => t.listId === id);
+  toTrash({
+    kind: 'list', title: l.name, emoji: l.emoji, color: l.color,
+    detail: mine.length ? `${mine.length} ${mine.length === 1 ? 'Aufgabe' : 'Aufgaben'}` : 'leer',
+    payload: { list: { ...l }, todos: mine.map(t => ({ ...t })) },
+  });
+  data.lists = data.lists.filter(x => x.id !== id);
   data.todos = data.todos.filter(t => t.listId !== id);
   if (data.settings.lastListId === id) data.settings.lastListId = data.lists[0]?.id || '';
   save();
@@ -802,8 +865,19 @@ export function updateTodo(id, fields) {
 }
 
 export function deleteTodo(id) {
-  const ids = new Set([id, ...descendantsOf(id).map(d => d.id)]);
-  data.todos = data.todos.filter(t => !ids.has(t.id));
+  const t = todo(id);
+  if (!t) return;
+  const kids = descendantsOf(id);
+  const ids = new Set([id, ...kids.map(d => d.id)]);
+  // Die Unteraufgaben kommen mit – sonst hinge die Hälfte beim Wiederherstellen
+  // im Leeren. Die Reihenfolge bleibt erhalten, Eltern vor Kindern.
+  const gone = data.todos.filter(x => ids.has(x.id)).map(x => ({ ...x }));
+  toTrash({
+    kind: 'todo', title: t.title, color: t.color,
+    detail: kids.length ? `mit ${kids.length} ${kids.length === 1 ? 'Unteraufgabe' : 'Unteraufgaben'}` : '',
+    payload: { todos: gone },
+  });
+  data.todos = data.todos.filter(x => !ids.has(x.id));
   save();
 }
 
@@ -811,21 +885,33 @@ export function deleteTodo(id) {
     Ein abgehaktes Unterelement hakt die Überaufgabe ab, wenn es das letzte war. */
 export function toggleTodo(id, force) {
   const t = todo(id);
-  if (!t) return;
+  if (!t) return [];
   const done = force === undefined ? !t.done : force;
   const stamp = done ? new Date().toISOString() : '';
-  t.done = done;
-  t.doneAt = stamp;
-  for (const d of descendantsOf(id)) { d.done = done; d.doneAt = stamp; }
+
+  /* Wer sich wirklich geändert hat, wird mitgeschrieben. Die Ansicht braucht
+     das, um beim Abhaken nur die betroffenen Zeilen anzufassen statt die ganze
+     Liste neu zu bauen. */
+  const changed = [];
+  const set = (x, value, when) => {
+    if (x.done === value) return;
+    x.done = value;
+    x.doneAt = when;
+    changed.push(x.id);
+  };
+
+  set(t, done, stamp);
+  for (const d of descendantsOf(id)) set(d, done, stamp);
 
   // Überaufgaben nachziehen – von innen nach außen, ringsicher
   for (const parent of ancestorsOf(id)) {
     const kids = descendantsOf(parent.id);
     const allDone = kids.length > 0 && kids.every(k => k.done);
-    if (allDone && !parent.done) { parent.done = true; parent.doneAt = stamp; }
-    else if (!done && parent.done) { parent.done = false; parent.doneAt = ''; }
+    if (allDone) set(parent, true, stamp);
+    else if (!done) set(parent, false, '');
   }
   save();
+  return changed;
 }
 
 /** Kann diese Aufgabe eine Ebene tiefer? Nur wenn ein Vorgänger auf gleicher
@@ -980,11 +1066,250 @@ export function overview(ref = today()) {
   };
 }
 
+/* ==========================================================================
+   Papierkorb
+   Löschen ist nicht mehr endgültig: Was gelöscht wird, landet hier mit allem,
+   was zum Wiederherstellen nötig ist, und verschwindet erst nach TRASH_DAYS.
+   Beim Wiederherstellen kann sich die Welt verändert haben – die Liste einer
+   Aufgabe kann fehlen, eine Kennung schon wieder vergeben sein. Das wird
+   aufgelöst statt abgelehnt, und die Meldung sagt, was angepasst wurde.
+   ========================================================================== */
+
+function daysSince(iso) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return Infinity;
+  return (Date.now() - t) / 86400000;
+}
+
+/** Abgelaufene Einträge entfernen und die Menge begrenzen. */
+export function pruneTrash() {
+  const before = data.trash.length;
+  data.trash = data.trash
+    .filter(e => daysSince(e.at) <= TRASH_DAYS)
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    .slice(0, TRASH_MAX);
+  return before - data.trash.length;
+}
+
+function toTrash(entry) {
+  data.trash.unshift({ id: uid(), at: new Date().toISOString(), emoji: '', color: '', detail: '', ...entry });
+  pruneTrash();
+}
+
+/** Alle Einträge, neueste zuerst. */
+export function trash() {
+  return [...data.trash].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+export function trashCount() { return data.trash.length; }
+
+/** Wie viele Tage der Eintrag noch bleibt. */
+export function trashDaysLeft(entry) {
+  return Math.max(0, Math.ceil(TRASH_DAYS - daysSince(entry.at)));
+}
+
+export function purgeTrash(entryId) {
+  const before = data.trash.length;
+  data.trash = data.trash.filter(e => e.id !== entryId);
+  if (data.trash.length !== before) save();
+  return before !== data.trash.length;
+}
+
+export function emptyTrash() {
+  if (!data.trash.length) return 0;
+  const n = data.trash.length;
+  data.trash = [];
+  save();
+  return n;
+}
+
+/**
+ * Stellt einen Eintrag wieder her und entfernt ihn aus dem Papierkorb.
+ * @returns {{ok: boolean, kind?: string, title?: string, note: string}}
+ *   `note` nennt, was beim Wiederherstellen angepasst werden musste.
+ */
+export function restoreTrash(entryId) {
+  const at = data.trash.findIndex(e => e.id === entryId);
+  if (at < 0) return { ok: false, note: 'Der Eintrag ist nicht mehr da.' };
+  const e = data.trash[at];
+
+  const note = e.kind === 'habit' ? restoreHabit(e.payload)
+    : e.kind === 'list' ? restoreList(e.payload)
+    : restoreTodos(e.payload);
+
+  data.trash.splice(at, 1);
+  save();
+  return { ok: true, kind: e.kind, title: e.title, note };
+}
+
+function restoreHabit({ habit: h, log }) {
+  const taken = new Set(data.habits.map(x => x.id));
+  const id = taken.has(h.id) ? uid() : h.id;
+  const nextOrder = data.habits.length ? Math.max(...data.habits.map(x => x.order ?? 0)) + 1 : 0;
+  data.habits.push({ ...h, id, order: nextOrder });
+  const entries = sanitizeLog({ [id]: log }, [{ id }]);
+  if (entries[id]) data.log[id] = { ...(data.log[id] || {}), ...entries[id] };
+  data.habits = sanitizeHabits(data.habits);
+  return id === h.id ? '' : 'Die Kennung war vergeben, das Habit hat eine neue bekommen.';
+}
+
+function restoreList({ list: l, todos }) {
+  const taken = new Set(data.lists.map(x => x.id));
+  const listId = taken.has(l.id) ? uid() : l.id;
+  const nextOrder = data.lists.length ? Math.max(...data.lists.map(x => x.order ?? 0)) + 1 : 0;
+  data.lists.push({ ...l, id: listId, order: nextOrder });
+  data.lists = sanitizeLists(data.lists);
+  const changed = putTodosBack(todos, listId);
+  return listId === l.id
+    ? (changed ? 'Einzelne Kennungen waren vergeben und wurden neu gesetzt.' : '')
+    : 'Die Kennung war vergeben, die Liste hat eine neue bekommen.';
+}
+
+function restoreTodos({ todos }) {
+  const wanted = todos[0]?.listId;
+  const notes = [];
+  let listId = wanted;
+
+  if (!data.lists.some(l => l.id === wanted)) {
+    const fallback = data.lists[0];
+    if (fallback) {
+      listId = fallback.id;
+      notes.push(`Die ursprüngliche Liste gibt es nicht mehr – eingefügt in „${fallback.name}".`);
+    } else {
+      const fresh = addList({ name: 'Wiederhergestellt', emoji: '♻️', color: 'slate' });
+      listId = fresh.id;
+      notes.push('Es gab keine Liste mehr – „Wiederhergestellt" wurde angelegt.');
+    }
+  }
+
+  if (putTodosBack(todos, listId)) notes.push('Einzelne Kennungen waren vergeben und wurden neu gesetzt.');
+  return notes.join(' ');
+}
+
+/**
+ * Legt Aufgaben zurück in eine Liste. Kennungen, die es schon gibt, werden neu
+ * vergeben – und die Eltern-Verweise innerhalb der Gruppe ziehen mit um.
+ * Zeigt ein Verweis nach außen, wird die Aufgabe ausgerückt statt ins Leere zu
+ * hängen.
+ * @returns {boolean} ob Kennungen neu vergeben werden mussten
+ */
+function putTodosBack(todos, listId) {
+  const taken = new Set(data.todos.map(t => t.id));
+  const remap = new Map();
+  let renamed = false;
+
+  for (const t of todos) {
+    const id = taken.has(t.id) ? uid() : t.id;
+    if (id !== t.id) renamed = true;
+    taken.add(id);
+    remap.set(t.id, id);
+  }
+
+  const group = new Set(todos.map(t => t.id));
+  let order = data.todos.filter(t => t.listId === listId).length
+    ? Math.max(...data.todos.filter(t => t.listId === listId).map(t => t.order ?? 0)) + 1
+    : 0;
+
+  for (const t of todos) {
+    const parent = t.parent && group.has(t.parent)
+      ? remap.get(t.parent)                                   // Verweis innerhalb der Gruppe
+      : (t.parent && data.todos.some(x => x.id === t.parent && x.listId === listId) ? t.parent : null);
+    data.todos.push({ ...t, id: remap.get(t.id), listId, parent, order: order++ });
+  }
+
+  data.todos = sanitizeTodos(data.todos, data.lists);
+  normalizeOrder(listId);
+  return renamed;
+}
+
 /* ---------- Suche ---------- */
 
 function foldText(text) {
   return String(text).toLowerCase()
     .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss');
+}
+
+/**
+ * Editierabstand zwischen `word` und dem *Anfang* von `hay` – gerechnet wird
+ * bis zum besten Vorsilbe-Treffer, nicht bis zum Wortende. Nur so findet
+ * „Vitmin" noch „Vitamine": zwei fehlende Buchstaben am Ende zählen sonst mit
+ * und sprengen jede vernünftige Toleranz.
+ *
+ * Bricht ab, sobald die Grenze in einer ganzen Reihe überschritten ist.
+ * @returns {number} Abstand, oder `max + 1`, wenn er darüber liegt
+ */
+function prefixDistance(word, hay, max) {
+  if (hay.startsWith(word)) return 0;
+  if (word.length - hay.length > max) return max + 1;
+
+  let prev = Array.from({ length: hay.length + 1 }, (_, j) => j);
+  let cur = new Array(hay.length + 1);
+
+  for (let i = 1; i <= word.length; i++) {
+    cur[0] = i;
+    let rowMin = i;
+    for (let j = 1; j <= hay.length; j++) {
+      const cost = word[i - 1] === hay[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (cur[j] < rowMin) rowMin = cur[j];
+    }
+    if (rowMin > max) return max + 1;      // wird nicht mehr besser
+    [prev, cur] = [cur, prev];
+  }
+  return Math.min(...prev);                 // bester Vorsilbe-Treffer
+}
+
+/** Wie viele Tippfehler ein Wort dieser Länge haben darf. */
+function tolerance(len) {
+  if (len < 4) return 0;                    // zu kurz – sonst passt alles auf alles
+  return len >= 7 ? 2 : 1;
+}
+
+/**
+ * Bewertet, wie gut ein Suchwort in einem Text steckt.
+ * @returns {number} 0 bei wörtlichem Treffer, sonst die Zahl der Tippfehler,
+ *   oder -1, wenn es gar nicht passt.
+ */
+function wordScore(word, hay, hayWords) {
+  if (hay.includes(word)) return 0;
+  const max = tolerance(word.length);
+  if (!max) return -1;
+
+  let best = max + 1;
+  for (const w of hayWords) {
+    const d = prefixDistance(word, w, max);
+    if (d < best) best = d;
+    if (best <= 1) break;                   // besser wird es praktisch nicht
+  }
+  return best <= max ? best : -1;
+}
+
+/**
+ * Findet die Stelle im Text, die den Suchbegriff getroffen hat – wörtlich oder
+ * als ähnlich geschriebenes Wort. Die Ansicht hebt genau diese Stelle hervor.
+ * @returns {{at: number, len: number}|null}
+ */
+export function matchSpan(text, query) {
+  const raw = String(text);
+  const hay = foldText(raw);
+  const word = foldText(query).trim().split(/\s+/)[0] || '';
+  if (word.length < 2) return null;
+
+  const at = hay.indexOf(word);
+  if (at >= 0) return { at, len: word.length };
+
+  const max = tolerance(word.length);
+  if (!max) return null;
+
+  // Das ähnlichste Wort im Text ganz markieren – eine Teilmarkierung mitten im
+  // Tippfehler wäre nur verwirrend.
+  let best = null;
+  for (const m of hay.matchAll(/[\p{L}\p{N}]+/gu)) {
+    const d = prefixDistance(word, m[0], max);
+    if (d <= max && (!best || d < best.d)) best = { d, at: m.index, len: m[0].length };
+    if (best?.d === 0) break;
+  }
+  return best ? { at: best.at, len: best.len } : null;
 }
 
 /**
@@ -996,47 +1321,70 @@ export function search(query, { settingsEntries = [] } = {}) {
   const q = foldText(query).trim();
   if (q.length < 2) return [];
   const words = q.split(/\s+/).filter(Boolean);
+
+  /* Jedes Suchwort muss vorkommen – wörtlich oder mit ein paar Tippfehlern.
+     Zurück kommt die Summe der Tippfehler: 0 heißt wörtlich getroffen. Danach
+     wird sortiert, damit ein exakter Treffer nie hinter einem geratenen steht.
+     Nicht getroffen ist -1 und beendet die Prüfung sofort. */
   const matches = (...fields) => {
-    const hay = foldText(fields.filter(Boolean).join(' '));
-    return words.every(w => hay.includes(w));
+    const text = fields.filter(Boolean).join(' ');
+    const hay = foldText(text);
+    let hayWords = null;          // erst zerlegen, wenn wörtlich nichts passt
+    let score = 0;
+    for (const w of words) {
+      if (hay.includes(w)) continue;
+      if (!hayWords) hayWords = hay.match(/[\p{L}\p{N}]+/gu)?.slice(0, 40) || [];
+      const s = wordScore(w, hay, hayWords);
+      if (s < 0) return -1;
+      score += s;
+    }
+    return score;
   };
 
   const out = [];
 
   for (const h of habits()) {
-    if (!matches(h.name, unitWords(h).many)) continue;
+    const score = matches(h.name, unitWords(h).many);
+    if (score < 0) continue;
     const iv = intervalOf(h);
     out.push({
-      kind: 'habit', id: h.id, title: h.name, emoji: h.emoji, color: h.color,
+      kind: 'habit', id: h.id, score, title: h.name, emoji: h.emoji, color: h.color,
       subtitle: `Habit · ${num(h.target)} ${unitWords(h).many} ${iv.per}`,
     });
   }
 
   for (const l of lists()) {
-    if (!matches(l.name)) continue;
+    const score = matches(l.name);
+    if (score < 0) continue;
     const open = todosOf(l.id).filter(t => !t.done).length;
     out.push({
-      kind: 'list', id: l.id, title: l.name, emoji: l.emoji, color: l.color,
+      kind: 'list', id: l.id, score, title: l.name, emoji: l.emoji, color: l.color,
       subtitle: `Liste · ${open} offen`,
     });
   }
 
   for (const t of data.todos) {
-    if (!matches(t.title, t.note)) continue;
+    const score = matches(t.title, t.note);
+    if (score < 0) continue;
     const l = list(t.listId);
     out.push({
-      kind: 'todo', id: t.id, listId: t.listId, title: t.title, color: t.color || l?.color,
+      kind: 'todo', id: t.id, listId: t.listId, score, title: t.title, color: t.color || l?.color,
       subtitle: `Aufgabe in ${l?.name || '?'}${t.done ? ' · erledigt' : ''}`,
       done: t.done,
     });
   }
 
   for (const e of settingsEntries) {
-    if (!matches(e.title, e.keywords)) continue;
-    out.push({ kind: 'setting', id: e.id, title: e.title, subtitle: `Einstellung · ${e.group}` });
+    const score = matches(e.title, e.keywords);
+    if (score < 0) continue;
+    out.push({ kind: 'setting', id: e.id, score, title: e.title, subtitle: `Einstellung · ${e.group}` });
   }
 
-  return out;
+  // Wörtliche Treffer zuerst, danach die mit den wenigsten Tippfehlern. Bei
+  // gleicher Bewertung bleibt die Reihenfolge der Bereiche erhalten.
+  return out.map((hit, i) => ({ hit, i }))
+    .sort((a, b) => a.hit.score - b.hit.score || a.i - b.i)
+    .map(x => x.hit);
 }
 
 function num(n) {

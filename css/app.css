@@ -30,6 +30,15 @@
   --check-size: 34px;
   --emoji-size: 22px;
 
+  /* Wie kräftig eine eigene Farbe ihr Objekt tönt. Die Einstellung setzt
+     data-tint am Wurzelelement; die Werte stehen nur hier. Der Farbbalken an
+     der Kante und der Fortschrittsring bleiben davon unberührt – sie sind das
+     Signal, die Fläche ist nur Beiwerk. */
+  --tint-bg: 5%;        /* Farbanteil in der Zeilenfläche */
+  --tint-edge: 46%;     /* Farbanteil im Rahmen */
+  --tint-chip: 12%;     /* Farbanteil hinter dem Emoji */
+  --tint-bar: .85;      /* Deckkraft des Farbbalkens an der Kante */
+
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
@@ -37,6 +46,18 @@
   --tabbar-h: 54px;
   --listbar-h: 46px;
 }
+
+/* Die vier Stufen der Sättigung. "Aus" lässt Emoji, Name und Ring die Farbe
+   tragen und beruhigt die Liste; "Kräftig" macht jedes Objekt zur Karte. */
+:root[data-tint="off"]    { --tint-bg: 0%;  --tint-edge: 0%;  --tint-chip: 0%;  --tint-bar: 0; }
+:root[data-tint="soft"]   { --tint-bg: 3%;  --tint-edge: 20%; --tint-chip: 8%;  --tint-bar: .55; }
+:root[data-tint="strong"] { --tint-bg: 12%; --tint-edge: 80%; --tint-chip: 26%; --tint-bar: 1; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-tint="soft"]   { --tint-bg: 5%;  --tint-chip: 13%; }
+  :root:not([data-theme="light"])[data-tint="strong"] { --tint-bg: 18%; --tint-chip: 34%; }
+}
+:root[data-theme="dark"][data-tint="soft"]   { --tint-bg: 5%;  --tint-chip: 13%; }
+:root[data-theme="dark"][data-tint="strong"] { --tint-bg: 18%; --tint-chip: 34%; }
 
 :root[data-size="small"]  { --row-h: 50px; --row-pad: 9px;  --row-title: 15px; --check-size: 28px; --emoji-size: 19px; }
 :root[data-size="medium"] { --row-h: 62px; --row-pad: 12px; --row-title: 16px; --check-size: 34px; --emoji-size: 22px; }
@@ -61,6 +82,9 @@
     --shadow-2: 0 8px 24px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
     --shadow-3: 0 -8px 40px rgba(0, 0, 0, .6);
     --scrim: rgba(0, 0, 0, .55);
+    /* Auf dunklem Grund braucht dieselbe Wirkung mehr Farbanteil. */
+    --tint-bg: 9%;
+    --tint-chip: 20%;
   }
 }
 :root[data-theme="dark"] {
@@ -81,6 +105,8 @@
   --shadow-2: 0 8px 24px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
   --shadow-3: 0 -8px 40px rgba(0, 0, 0, .6);
   --scrim: rgba(0, 0, 0, .55);
+  --tint-bg: 9%;
+  --tint-chip: 20%;
 }
 
 /* ==========================================================================
@@ -242,8 +268,8 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 /* Die eigene Farbe rahmt die Zeile ein und tönt sie leicht – so tritt jedes
    Habit bzw. jede Aufgabe als eigenes Objekt hervor. */
 .row.tinted {
-  border-color: color-mix(in oklab, var(--tint) 46%, var(--border));
-  background: color-mix(in oklab, var(--tint) 5%, var(--surface));
+  border-color: color-mix(in oklab, var(--tint) var(--tint-edge), var(--border));
+  background: color-mix(in oklab, var(--tint) var(--tint-bg), var(--surface));
 }
 .row.tinted::before {
   content: "";
@@ -252,7 +278,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   width: 3px;
   border-radius: 0 3px 3px 0;
   background: var(--tint);
-  opacity: .85;
+  opacity: var(--tint-bar);
 }
 .row.tappable:active { background: var(--surface-2); }
 
@@ -268,8 +294,12 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   font-size: var(--emoji-size);
   line-height: 1;
   border-radius: 10px;
-  background: var(--tint-soft, var(--surface-2));
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tint, var(--border)) 22%, transparent);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px transparent;
+}
+.row.tinted .row-emoji {
+  background: color-mix(in oklab, var(--tint) var(--tint-chip), var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tint) calc(var(--tint-edge) / 2), transparent);
 }
 .row-body { flex: 1; min-width: 0; }
 .row-title {
@@ -390,10 +420,25 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   animation-name: flash-done-tinted;
 }
 @keyframes flash-done-tinted {
-  0%   { background: color-mix(in oklab, var(--tint) 5%, var(--surface)); }
+  0%   { background: color-mix(in oklab, var(--tint) var(--tint-bg), var(--surface)); }
   22%  { background: color-mix(in oklab, var(--tint) 38%, var(--surface));
          box-shadow: 0 0 0 3px color-mix(in oklab, var(--tint) 26%, transparent), var(--shadow-1); }
-  100% { background: color-mix(in oklab, var(--tint) 5%, var(--surface)); }
+  100% { background: color-mix(in oklab, var(--tint) var(--tint-bg), var(--surface)); }
+}
+
+/* Abgehaktes verlässt die Liste, indem es zusammenfällt – nicht indem es
+   verschwindet. Gilt für Aufgaben und Habits gleichermaßen: beide sind
+   .sort-wrap. Der negative Abstand nach unten hebt die Lücke der Liste auf,
+   sonst bliebe während des Zusammenfallens ein Loch stehen. */
+.sort-wrap.leaving {
+  overflow: hidden;
+  height: 0 !important;
+  opacity: 0;
+  margin-bottom: -8px;
+  pointer-events: none;
+  transition: height .26s cubic-bezier(.4, 0, .2, 1),
+              opacity .18s ease-out,
+              margin-bottom .26s cubic-bezier(.4, 0, .2, 1);
 }
 
 /* ==========================================================================
@@ -592,7 +637,7 @@ body.is-dragging .scroll { overflow: hidden; }
   display: grid; place-items: center;
   border-radius: 17px;
   font-size: 30px;
-  background: var(--tint-soft);
+  background: color-mix(in oklab, var(--tint) var(--tint-chip), var(--surface-2));
 }
 .detail-hero h2 { font-size: 24px; font-weight: 700; letter-spacing: -.02em; }
 .detail-hero .goal { font-size: 13.5px; color: var(--text-3); margin-top: 3px; }
@@ -769,7 +814,7 @@ body.is-dragging .scroll { overflow: hidden; }
   display: grid; place-items: center;
   border-radius: 9px;
   font-size: 16px;
-  background: color-mix(in oklab, var(--tint) 14%, var(--surface));
+  background: color-mix(in oklab, var(--tint) var(--tint-chip), var(--surface));
 }
 .home-streak-name {
   flex: 1; min-width: 0;
@@ -1336,7 +1381,44 @@ select.input {
 .setting-body { flex: 1; min-width: 0; }
 .setting-title { font-size: 15.5px; font-weight: 550; }
 .setting-desc { font-size: 12.5px; color: var(--text-3); margin-top: 2px; line-height: 1.4; }
-.setting-value { font-size: 15px; color: var(--text-3); flex: none; }
+.setting-value { display: flex; align-items: center; gap: 6px; font-size: 15px; color: var(--text-3); flex: none; }
+
+/* Zähler am Einstellungs-Eintrag, z. B. wie viel im Papierkorb liegt. */
+.setting-badge {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Zurückholen im Papierkorb – rechts, wo in dieser App die Handlung sitzt. */
+.trash-restore {
+  flex: none;
+  width: var(--check-size);
+  height: var(--check-size);
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--accent);
+  background: var(--accent-soft);
+  transition: transform .12s cubic-bezier(.3, 1.4, .5, 1);
+}
+.trash-restore::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: max(44px, 100%);
+  height: max(44px, 100%);
+  transform: translate(-50%, -50%);
+}
+.trash-restore:active { transform: scale(.86); }
 .setting.tappable:active { background: var(--surface-2); }
 .setting.danger .setting-title { color: var(--danger); }
 

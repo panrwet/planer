@@ -543,6 +543,193 @@ await step('abhaken per Berührung', async () => {
 });
 
 /* ========================================================================== */
+group('Abhaken bleibt flüssig');
+
+await step('die Zeile wird aufgefrischt, nicht ersetzt', async () => {
+  await seed();
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(450);
+  // Zeile und Knopf markieren – überlebt die Markierung das Abhaken?
+  const marked = await page.evaluate(() => {
+    const wrap = document.querySelector('#todo-list .todo-wrap');
+    wrap.dataset.probe = 'ja';
+    wrap.querySelector('.check').dataset.probe = 'ja';
+    return wrap.querySelector('.row-title').textContent;
+  });
+  // Eine andere Zeile abhaken: die markierte darf gar nicht angefasst werden
+  await page.locator('#todo-list .todo-wrap').filter({ hasText: 'Käse' })
+    .first().locator('.check').tap();
+  await wait(120);
+  const still = await page.evaluate(() => {
+    const wrap = document.querySelector('#todo-list .todo-wrap[data-probe]');
+    return { wrap: !!wrap, check: !!wrap?.querySelector('.check[data-probe]') };
+  });
+  if (!still.wrap || !still.check) throw new Error(`${marked}: Zeile neu gebaut (${JSON.stringify(still)})`);
+});
+
+await step('der Fortschrittsring wandert, statt zu springen', async () => {
+  // Ein Habit mit Ziel 3: Nach dem ersten Tipp muss derselbe Knopf noch da
+  // sein – nur dann läuft der CSS-Übergang des Rings überhaupt.
+  await seed();
+  await page.locator('.tab[data-goto=habits]').tap();
+  await wait(450);
+  const before = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#habit-groups .row')].find(r => /Wasser/.test(r.textContent));
+    row.querySelector('.check').dataset.probe = 'ja';
+    return row.querySelector('.prog').getAttribute('stroke-dashoffset');
+  });
+  await page.locator('#habit-groups .row').filter({ hasText: 'Wasser' }).first().locator('.check').tap();
+  await wait(150);
+  const after = await page.evaluate(() => {
+    const b = document.querySelector('#habit-groups .check[data-probe]');
+    return b ? b.querySelector('.prog').getAttribute('stroke-dashoffset') : null;
+  });
+  if (after === null) throw new Error('Knopf wurde ersetzt – der Ring kann nicht laufen');
+  if (after === before) throw new Error(`Fortschritt unverändert (${before})`);
+});
+
+await step('abgehakte Aufgabe leuchtet erst, verschwindet dann', async () => {
+  await seed();
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(450);
+  const row = page.locator('#todo-list .todo-wrap').filter({ hasText: 'Brot' }).first();
+  await row.locator('.check').tap();
+  await wait(120);
+  const t1 = await page.evaluate(() => {
+    const w = [...document.querySelectorAll('#todo-list .todo-wrap')].find(n => /Brot/.test(n.textContent));
+    return { da: !!w, leuchtet: !!w?.querySelector('.row.flash-done'), faellt: !!w?.classList.contains('leaving') };
+  });
+  if (!t1.da) throw new Error('sofort verschwunden');
+  if (!t1.leuchtet) throw new Error('leuchtet nicht');
+  if (t1.faellt) throw new Error('fällt schon zusammen, während es leuchtet');
+
+  await wait(1400);
+  const t2 = await page.evaluate(() => {
+    const w = [...document.querySelectorAll('#todo-list .todo-wrap')].find(n => /Brot/.test(n.textContent));
+    const erledigt = [...document.querySelectorAll('#todos-done .row-title')].map(n => n.textContent);
+    return { nochDa: !!w, erledigt };
+  });
+  if (t2.nochDa) throw new Error('bleibt in der Liste stehen');
+  if (!t2.erledigt.includes('Brot')) throw new Error(`nicht unter Erledigt: ${t2.erledigt.join(', ')}`);
+});
+
+await step('Zähler in Kopfzeile und Listen-Reiter ziehen mit', async () => {
+  await seed();
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(450);
+  const lies = () => page.evaluate(() => ({
+    kopf: document.querySelector('#todos-subtitle').textContent,
+    reiter: document.querySelector('#list-tabs .list-tab.active .list-tab-badge')?.textContent || '',
+  }));
+  const vorher = await lies();
+  await page.locator('#todo-list .todo-wrap').filter({ hasText: 'Käse' }).first().locator('.check').tap();
+  await wait(200);
+  const nachher = await lies();
+  if (nachher.kopf === vorher.kopf) throw new Error(`Kopfzeile unverändert: ${vorher.kopf}`);
+  if (nachher.reiter === vorher.reiter) throw new Error(`Reiter unverändert: ${vorher.reiter}`);
+});
+
+/* ========================================================================== */
+group('Zuletzt gelöscht');
+
+await step('gelöschte Aufgabe liegt im Papierkorb und kommt zurück', async () => {
+  await seed();
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(450);
+  await page.locator('#todo-list .todo-wrap').filter({ hasText: 'Milch' }).first().locator('.row-body').tap();
+  await wait(500);
+  await page.locator('.sheet-body .btn.danger, .sheet-body button').filter({ hasText: /löschen/i }).first().tap();
+  await wait(400);
+  await page.locator('.sheet-host button').filter({ hasText: /löschen/i }).last().tap();
+  await wait(500);
+  if ((await tree()).includes('Milch')) throw new Error('nicht gelöscht');
+
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(320);
+  await page.locator('.home-tile').filter({ hasText: 'Einstellungen' }).tap();
+  await wait(450);
+  await page.locator('[data-setting="trash"]').tap();
+  await wait(450);
+  const zeilen = await page.locator('#trash-scroll .row-title').allInnerTexts();
+  if (!zeilen.includes('Milch')) throw new Error(`Papierkorb: ${zeilen.join(', ')}`);
+
+  await page.locator('#trash-scroll .row').filter({ hasText: 'Milch' }).locator('.trash-restore').tap();
+  await wait(550);
+  if ((await page.locator('#trash-scroll .row-title').allInnerTexts()).includes('Milch')) {
+    throw new Error('bleibt im Papierkorb stehen');
+  }
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(450);
+  if (!(await tree()).includes('Milch')) throw new Error(`nicht zurück: ${await tree()}`);
+});
+
+await step('endgültig löschen räumt den Papierkorb', async () => {
+  await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    S.deleteTodo(S.getData().todos.find(t => t.title === 'Käse').id);
+  });
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(300);
+  await page.locator('.home-tile').filter({ hasText: 'Einstellungen' }).tap();
+  await wait(450);
+  await page.locator('[data-setting="trash"]').tap();
+  await wait(450);
+  if (!await page.locator('#trash-scroll .row').count()) throw new Error('Papierkorb leer');
+  await page.locator('.setting').filter({ hasText: 'Papierkorb leeren' }).tap();
+  await wait(400);
+  await page.locator('.sheet-host button').filter({ hasText: /Endgültig/i }).last().tap();
+  await wait(500);
+  if (await page.locator('#trash-scroll .row').count()) throw new Error('nicht geleert');
+  if (!await page.locator('#trash-scroll .empty').count()) throw new Error('kein Hinweis auf den leeren Papierkorb');
+});
+
+/* ========================================================================== */
+group('Farbstärke und Tippfehler-Suche');
+
+await step('Farbstärke ändert die Tönung sichtbar', async () => {
+  await seed();
+  const toene = {};
+  for (const stufe of ['off', 'soft', 'normal', 'strong']) {
+    await page.evaluate(async (s) => {
+      const S = await import('/js/store.js');
+      S.setSetting('saturation', s);
+      document.documentElement.dataset.tint = s;
+    }, stufe);
+    await page.locator('.tab[data-goto=habits]').tap();
+    await wait(330);
+    toene[stufe] = await page.evaluate(() => {
+      const row = document.querySelector('#habit-groups .row.tinted');
+      const cs = getComputedStyle(row);
+      return `${cs.backgroundColor}|${cs.borderTopColor}`;
+    });
+  }
+  const eindeutig = new Set(Object.values(toene));
+  if (eindeutig.size !== 4) throw new Error(`Stufen nicht unterscheidbar: ${JSON.stringify(toene)}`);
+  await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    S.setSetting('saturation', 'normal');
+    document.documentElement.dataset.tint = 'normal';
+  });
+});
+
+await step('Suche findet trotz Tippfehler und markiert die Stelle', async () => {
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(320);
+  await page.locator('.home-tile').filter({ hasText: 'Suchen' }).tap();
+  await wait(420);
+  await page.locator('#search-input').fill('Vitmine');
+  await wait(420);
+  const treffer = await page.locator('#search-scroll .row-title').allInnerTexts();
+  if (!treffer.some(t => /Vitamine/.test(t))) throw new Error(`gefunden: ${treffer.join(', ') || 'nichts'}`);
+  const markiert = await page.locator('#search-scroll mark').first().innerText();
+  if (markiert !== 'Vitamine') throw new Error(`markiert: „${markiert}"`);
+
+  await page.locator('#search-input').fill('Zitronenpresse');
+  await wait(420);
+  if (!await page.locator('#search-scroll .empty').count()) throw new Error('Unsinn liefert Treffer');
+});
+
+/* ========================================================================== */
 group('Datenerhalt');
 
 await step('Neustart verändert nichts', async () => {

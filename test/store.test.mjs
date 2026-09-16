@@ -771,6 +771,302 @@ test('Berechnungen über sehr lange Zeiträume bleiben begrenzt', () => {
   assert.ok(Number.isFinite(r.pct) && Number.isFinite(st));
 });
 
+console.log('\nSuche mit Tippfehlern');
+
+/** Bestand, an dem die Suche geprüft wird. */
+function searchSetup() {
+  S._setData({});
+  S.addHabit({ name: 'Vitamine nehmen', sched: 'day', target: 1, created: '2026-01-01' });
+  S.addHabit({ name: 'Krafttraining', sched: 'week', target: 3, created: '2026-01-01' });
+  S.addHabit({ name: 'Wasser trinken', sched: 'day', unit: 'glass', target: 8, created: '2026-01-01' });
+  const l = S.addList({ name: 'Einkaufen' });
+  S.addTodo(l.id, { title: 'Spülmaschine ausräumen', note: 'vor dem Frühstück' });
+  S.addTodo(l.id, { title: 'Geburtstagsgeschenk' });
+  return l;
+}
+const titles = (q) => S.search(q, { settingsEntries: [] }).map(h => h.title);
+
+test('wörtliche Treffer funktionieren weiter', () => {
+  searchSetup();
+  assert.deepEqual(titles('vitamine'), ['Vitamine nehmen']);
+  assert.deepEqual(titles('spül'), ['Spülmaschine ausräumen']);
+});
+
+test('vertippt, verdreht, vergessen – wird trotzdem gefunden', () => {
+  searchSetup();
+  const cases = [
+    ['Vitmine', 'Vitamine nehmen'],          // Buchstabe fehlt
+    ['Vitaminr', 'Vitamine nehmen'],         // Buchstabe daneben
+    ['Vitmain', 'Vitamine nehmen'],          // vertauscht
+    ['Krafttraning', 'Krafttraining'],       // fehlender Buchstabe im Kompositum
+    ['Kraftraining', 'Krafttraining'],       // doppelter Buchstabe vergessen
+    ['Spülmschine', 'Spülmaschine ausräumen'],
+    ['Geburtstaggeschenk', 'Geburtstagsgeschenk'],
+    ['Einkafen', 'Einkaufen'],
+    ['wasse', 'Wasser trinken'],             // abgeschnitten
+  ];
+  const fehlt = cases.filter(([q, want]) => !titles(q).includes(want)).map(([q]) => q);
+  assert.deepEqual(fehlt, [], 'diese Eingaben finden nichts');
+});
+
+test('unscharfe Treffer nur bei langen Wörtern', () => {
+  searchSetup();
+  // Drei Buchstaben dürfen nicht auf alles passen
+  assert.deepEqual(titles('vit'), ['Vitamine nehmen'], 'kurz, aber wörtlich enthalten');
+  assert.deepEqual(titles('xyz'), [], 'kurz und falsch findet nichts');
+  assert.deepEqual(titles('Zitronenpresse'), [], 'völlig anderes Wort findet nichts');
+});
+
+test('wörtlicher Treffer steht vor dem geratenen', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  S.addTodo(l.id, { title: 'Kalender' });      // unscharf zu "Kalander"
+  S.addTodo(l.id, { title: 'Kalander' });      // wörtlich
+  assert.deepEqual(titles('Kalander'), ['Kalander', 'Kalender']);
+});
+
+test('Umlaute und ß werden gefaltet, auch mit Tippfehler', () => {
+  searchSetup();
+  assert.deepEqual(titles('spulmaschine'), ['Spülmaschine ausräumen']);
+  assert.deepEqual(titles('ausraumen'), ['Spülmaschine ausräumen']);
+  assert.deepEqual(titles('spulmschine'), ['Spülmaschine ausräumen']);
+});
+
+test('mehrere Wörter: jedes muss passen, Tippfehler zählen zusammen', () => {
+  searchSetup();
+  assert.deepEqual(titles('spülmaschine ausräumen'), ['Spülmaschine ausräumen']);
+  assert.deepEqual(titles('spülmschine ausraumen'), ['Spülmaschine ausräumen']);
+  assert.deepEqual(titles('spülmaschine zitrone'), [], 'ein Wort passt nicht');
+});
+
+test('Notizen werden mitdurchsucht, auch unscharf', () => {
+  searchSetup();
+  assert.deepEqual(titles('Frühstück'), ['Spülmaschine ausräumen']);
+  assert.deepEqual(titles('Fruhstuck'), ['Spülmaschine ausräumen']);
+  assert.deepEqual(titles('Frühstuk'), ['Spülmaschine ausräumen']);
+});
+
+test('die markierte Stelle passt zum Treffer', () => {
+  const span = (text, q) => {
+    const m = S.matchSpan(text, q);
+    return m ? text.slice(m.at, m.at + m.len) : null;
+  };
+  assert.equal(span('Vitamine nehmen', 'vitamine'), 'Vitamine');
+  assert.equal(span('Vitamine nehmen', 'Vitmine'), 'Vitamine', 'markiert das ganze ähnliche Wort');
+  assert.equal(span('Spülmaschine ausräumen', 'ausraumen'), 'ausräumen');
+  assert.equal(span('Spülmaschine ausräumen', 'maschine'), 'maschine', 'auch mitten im Wort');
+  assert.equal(span('Vitamine nehmen', 'Zitrone'), null, 'kein Treffer, keine Markierung');
+});
+
+test('Suche bleibt schnell genug für Eingabe im Takt', () => {
+  S._setData({});
+  const l = S.addList({ name: 'Gross' });
+  for (let i = 0; i < 2000; i++) {
+    S.addTodo(l.id, { title: `Besorgung Nummer ${i}`, note: 'eine Notiz mit etwas Text darin' });
+  }
+  const t0 = Date.now();
+  for (const q of ['besrgung', 'nummer 1', 'notz', 'xyzabc', 'besorgung']) {
+    S.search(q, { settingsEntries: [] });
+  }
+  const ms = Date.now() - t0;
+  assert.ok(ms < 900, `fünf Suchen über 2000 Aufgaben dauerten ${ms} ms`);
+});
+
+console.log('\nPapierkorb');
+
+test('gelöschtes Habit landet im Papierkorb und kommt mit Verlauf zurück', () => {
+  S._setData({});
+  const h = S.addHabit({ name: 'Laufen', emoji: '🏃', color: 'green', sched: 'day', target: 5, created: '2026-01-01' });
+  S.setValue(h.id, '2026-09-01', 5);
+  S.setValue(h.id, '2026-09-02', 3);
+
+  S.deleteHabit(h.id);
+  assert.equal(S.habits().length, 0);
+  assert.equal(S.trashCount(), 1);
+  assert.equal(S.trash()[0].title, 'Laufen');
+  assert.equal(S.trash()[0].detail, '2 erfasste Tage');
+
+  const r = S.restoreTrash(S.trash()[0].id);
+  assert.equal(r.ok, true);
+  assert.equal(r.note, '', 'nichts musste angepasst werden');
+  assert.equal(S.trashCount(), 0);
+  const back = S.habits()[0];
+  assert.equal(back.name, 'Laufen');
+  assert.equal(S.valueOn(back.id, '2026-09-01'), 5);
+  assert.equal(S.valueOn(back.id, '2026-09-02'), 3);
+});
+
+test('gelöschte Liste kommt mit allen Aufgaben und ihrer Verschachtelung zurück', () => {
+  S._setData({});
+  const l = S.addList({ name: 'Einkaufen', emoji: '🛒', color: 'green' });
+  const a = S.addTodo(l.id, { title: 'Milch' });
+  const b = S.addTodo(l.id, { title: 'Vollmilch' });
+  S.indentTodo(b.id);
+  assert.equal(S.todo(b.id).parent, a.id);
+
+  S.deleteList(l.id);
+  assert.equal(S.lists().length, 0);
+  assert.equal(S.todosOf(l.id).length, 0);
+  assert.equal(S.trash()[0].detail, '2 Aufgaben');
+
+  S.restoreTrash(S.trash()[0].id);
+  assert.equal(S.lists().length, 1);
+  const titles = S.todosOf(l.id).map(t => t.title);
+  assert.deepEqual(titles.sort(), ['Milch', 'Vollmilch']);
+  const back = S.todosOf(l.id).find(t => t.title === 'Vollmilch');
+  assert.equal(S.todo(back.id).parent, a.id, 'bleibt Unteraufgabe');
+});
+
+test('gelöschte Aufgabe nimmt ihre Unteraufgaben mit und zurück', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'Umzug' });
+  const b = S.addTodo(l.id, { title: 'Kartons' });
+  S.indentTodo(b.id);
+
+  S.deleteTodo(a.id);
+  assert.equal(S.todosOf(l.id).length, 0);
+  assert.equal(S.trash()[0].detail, 'mit 1 Unteraufgabe');
+
+  S.restoreTrash(S.trash()[0].id);
+  assert.equal(S.todosOf(l.id).length, 2);
+  const kid = S.todosOf(l.id).find(t => t.title === 'Kartons');
+  assert.equal(S.todo(kid.id).parent, a.id);
+});
+
+test('Aufgabe ohne ihre alte Liste kommt in die erste vorhandene', () => {
+  S._setData({});
+  const l = S.addList({ name: 'Alt' });
+  const t = S.addTodo(l.id, { title: 'Reste' });
+  S.deleteTodo(t.id);
+  const entry = S.trash()[0];
+  S.purgeTrash(S.trash().find(e => e.kind === 'list')?.id || '');   // nichts entfernen
+  S.deleteList(l.id);
+  const neu = S.addList({ name: 'Neu' });
+
+  const r = S.restoreTrash(entry.id);
+  assert.equal(r.ok, true);
+  assert.match(r.note, /Neu/, 'die Meldung nennt die Ersatzliste');
+  assert.deepEqual(S.todosOf(neu.id).map(x => x.title), ['Reste']);
+});
+
+test('Aufgabe ohne jede Liste bekommt eine neue', () => {
+  S._setData({});
+  const l = S.addList({ name: 'Einzige' });
+  const t = S.addTodo(l.id, { title: 'Allein' });
+  S.deleteTodo(t.id);
+  const entry = S.trash()[0];
+  S.deleteList(l.id);
+  assert.equal(S.lists().length, 0);
+
+  const r = S.restoreTrash(entry.id);
+  assert.equal(r.ok, true);
+  assert.equal(S.lists().length, 1);
+  assert.equal(S.lists()[0].name, 'Wiederhergestellt');
+  assert.deepEqual(S.todosOf(S.lists()[0].id).map(x => x.title), ['Allein']);
+});
+
+test('vergebene Kennung führt zu einer neuen, nicht zum Verlust', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const t = S.addTodo(l.id, { title: 'Doppelt' });
+  S.deleteTodo(t.id);
+  const entry = S.trash()[0];
+
+  // Genau diese Kennung wieder belegen – so sieht es nach einem Import aus,
+  // der einen alten Stand zurückgespielt hat.
+  S.getData().todos.push({ ...t, listId: l.id, title: 'Besetzer' });
+
+  const r = S.restoreTrash(entry.id);
+  assert.equal(r.ok, true);
+  assert.match(r.note, /Kennung/, 'die Meldung sagt, dass angepasst wurde');
+  assert.deepEqual(S.todosOf(l.id).map(x => x.title).sort(), ['Besetzer', 'Doppelt'],
+    'beide sind da, keine überschreibt die andere');
+});
+
+test('Papierkorb räumt nach 30 Tagen auf, behält Jüngeres', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'Alt' });
+  const b = S.addTodo(l.id, { title: 'Neu' });
+  S.deleteTodo(a.id);
+  S.deleteTodo(b.id);
+  const alt = S.trash().find(e => e.title === 'Alt');
+  alt.at = new Date(Date.now() - 31 * 86400000).toISOString();
+
+  assert.equal(S.pruneTrash(), 1);
+  assert.deepEqual(S.trash().map(e => e.title), ['Neu']);
+});
+
+test('endgültig löschen und leeren', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  for (const title of ['A', 'B', 'C']) S.deleteTodo(S.addTodo(l.id, { title }).id);
+  assert.equal(S.trashCount(), 3);
+
+  assert.equal(S.purgeTrash(S.trash()[0].id), true);
+  assert.equal(S.trashCount(), 2);
+  assert.equal(S.purgeTrash('gibtsnicht'), false);
+
+  assert.equal(S.emptyTrash(), 2);
+  assert.equal(S.trashCount(), 0);
+  assert.equal(S.emptyTrash(), 0, 'leerer Papierkorb ist kein Fehler');
+});
+
+test('Papierkorb übersteht Sichern und Laden', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const t = S.addTodo(l.id, { title: 'Weg' });
+  S.deleteTodo(t.id);
+
+  const json = S.exportJSON();
+  S._setData({});
+  assert.equal(S.trashCount(), 0);
+  S.importJSON(json);
+  assert.equal(S.trashCount(), 1);
+  S.restoreTrash(S.trash()[0].id);
+  assert.deepEqual(S.todosOf(l.id).map(x => x.title), ['Weg']);
+});
+
+test('kaputte Papierkorb-Einträge werden verworfen, gute bleiben', () => {
+  S._setData({
+    v: 5,
+    lists: [{ id: 'l1', name: 'L' }],
+    todos: [],
+    trash: [
+      null,
+      { kind: 'unsinn', payload: {} },
+      { id: 'x', kind: 'todo', payload: { todos: [] } },              // leer
+      { id: 'y', kind: 'habit', payload: {} },                         // ohne Habit
+      { id: 'z', kind: 'todo', at: '2026-09-01T10:00:00.000Z', title: 'Gut',
+        payload: { todos: [{ id: 't9', listId: 'l1', title: 'Gut' }] } },
+    ],
+  });
+  assert.equal(S.trashCount(), 1);
+  assert.equal(S.trash()[0].title, 'Gut');
+  S.restoreTrash(S.trash()[0].id);
+  assert.deepEqual(S.todosOf('l1').map(t => t.title), ['Gut']);
+});
+
+test('abgehakte Aufgabe meldet, was sich wirklich geändert hat', () => {
+  S._setData({});
+  const l = S.addList({ name: 'L' });
+  const a = S.addTodo(l.id, { title: 'Eltern' });
+  const b = S.addTodo(l.id, { title: 'Kind 1' });
+  const c = S.addTodo(l.id, { title: 'Kind 2' });
+  S.indentTodo(b.id);
+  S.indentTodo(c.id);
+
+  // Eltern abhaken zieht beide Kinder mit: drei Änderungen
+  assert.equal(S.toggleTodo(a.id).length, 3);
+  // Nochmal in dieselbe Richtung ändert nichts
+  assert.deepEqual(S.toggleTodo(a.id, true), []);
+  // Ein Kind öffnen öffnet auch die Überaufgabe: zwei Änderungen
+  assert.deepEqual(S.toggleTodo(b.id).sort(), [a.id, b.id].sort());
+  // Das letzte offene Kind abhaken schließt die Überaufgabe wieder
+  assert.deepEqual(S.toggleTodo(b.id).sort(), [a.id, b.id].sort());
+});
+
 console.log('\nBackup');
 test('Export und Import erhalten die Daten', () => {
   S._setData({});

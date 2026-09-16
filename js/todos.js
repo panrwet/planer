@@ -9,7 +9,7 @@ import { attachSwipe, closeSwipe, wasSwipe } from './swipe.js';
 import {
   toast, openSheet, confirmSheet, openDropup, dropupItem, field, editorFields,
   textInput, emojiPicker, nameWithEmoji, colorPicker, checkButton, sectionToggle,
-  applyFlash,
+  flashRow, collapseAway, paintCheck,
 } from './ui.js';
 
 const MAX_DEPTH = 2;   // drei Ebenen: 0, 1, 2
@@ -242,6 +242,7 @@ export function renderTodos(listId) {
     $('#todos-subtitle').textContent = '';
     $('#todos-empty').hidden = false;
     $('#todos-empty-text').textContent = 'Lege über den Pfeil unten rechts deine erste Liste an.';
+    renderListBar('');
     return;
   }
 
@@ -266,34 +267,50 @@ export function renderTodos(listId) {
     });
   }
 
-  const doneItems = showDone ? [] : S.todosOf(listId).filter((t) => t.done)
-    .sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt)));
-
-  if (doneItems.length) {
-    const list = el('div', { class: 'list' });
-    list.hidden = !S.groupOpen('todosDone');
-    list.append(...doneItems.map((t) => todoRow({ todo: t, depth: 0 }, listId, isDark, { draggable: false })));
-    doneHost.replaceChildren(el('div', { class: 'group-section' }, [
-      sectionToggle({
-        label: 'Erledigt', count: doneItems.length, open: S.groupOpen('todosDone'),
-        onToggle: (next) => { list.hidden = !next; S.setGroupOpen('todosDone', next); },
-      }),
-      list,
-    ]));
-  } else {
-    doneHost.replaceChildren();
-  }
-
-  const st = listStats(listId);
-  $('#todos-subtitle').textContent = st.open
-    ? `${st.open} offen${st.overdue ? ` · ${st.overdue} überfällig` : ''}`
-    : (st.total ? 'Alles erledigt' : '');
-  $('#todos-subtitle').classList.toggle('has-overdue', st.overdue > 0);
-  $('#todos-empty').hidden = items.length > 0 || doneItems.length > 0;
+  renderDoneSection(listId, isDark);
+  updateTodoCounters(listId);
+  $('#todos-empty').hidden = items.length > 0 || doneHost.children.length > 0;
   $('#todos-empty-text').textContent = 'Tippe oben rechts auf + für eine neue Aufgabe.';
 }
 
+/* ==========================================================================
+   Eine Aufgabenzeile
+   Sie wird an genau einer Stelle gebaut (todoRow) und an genau einer Stelle
+   mit Inhalt gefüllt (fillRow). Beim Abhaken wird nur nachgefüllt, nicht neu
+   gebaut: Die Behandlung für Tippen, Wischen und Ziehen hängt an der Hülle und
+   bleibt dadurch bestehen – und die Liste wird nicht angefasst. Vorher baute
+   jeder Haken alle Zeilen neu, was bei 800 Aufgaben knapp eine halbe Sekunde
+   kostete und die Zeile mitten im Aufleuchten austauschte.
+   ========================================================================== */
+
 function todoRow({ todo: t, depth }, listId, isDark, { draggable }) {
+  const row = el('div', { class: 'row tappable' });
+  const wrap = el('div', { class: 'sort-wrap todo-wrap', dataset: { id: t.id, depth: String(depth) } }, [row]);
+  fillRow(row, t, listId, isDark);
+
+  row.addEventListener('click', (e) => {
+    // wasSwipe() deckt beides ab: den Nachklapp einer Wischgeste und den
+    // Tipp, der nur einen offenen Wisch-Knopf geschlossen hat.
+    if (isDragging() || wasSwipe() || e.target.closest('.check, .swipe-action')) return;
+    openTodoEditor(listId, t.id);
+  });
+
+  /* Wischen nach rechts rückt ein bzw. aus – der Weg, den iOS-Nutzer von
+     Apple Erinnerungen kennen. Das Ziehen bleibt als zweiter Weg. */
+  if (draggable) {
+    attachSwipe(wrap, row, {
+      blocked: isDragging,
+      canIndent: () => S.canIndent(t.id, MAX_DEPTH),
+      canOutdent: () => S.canOutdent(t.id),
+      onIndent: () => { S.indentTodo(t.id, MAX_DEPTH); renderTodos(listId); },
+      onOutdent: () => { S.outdentTodo(t.id); renderTodos(listId); },
+    });
+  }
+  return wrap;
+}
+
+/** Füllt eine Zeile mit dem aktuellen Stand – neu gebaut oder aufgefrischt. */
+function fillRow(row, t, listId, isDark) {
   const c = t.color ? S.colorOf(t.color) : null;
   const tint = c ? (isDark ? c.dark : c.light) : null;
   const kids = S.childrenOf(t.id);
@@ -312,46 +329,109 @@ function todoRow({ todo: t, depth }, listId, isDark, { draggable }) {
   }
   if (t.note && !meta.length) meta.push(el('span', { text: t.note.split('\n')[0] }));
 
-  const row = el('div', {
-    class: `row tappable${t.color ? ' tinted' : ''}${t.done ? ' is-done dimmed' : ''}`,
-    style: t.color ? S.tintStyle(t.color, isDark) : null,
-  }, [
-    el('div', { class: 'row-body' }, [
-      el('div', { class: 'row-title', text: t.title }),
-      meta.length ? el('div', { class: 'row-meta' }, meta) : null,
-      t.note && meta.length ? el('div', { class: 'row-note', text: t.note.split('\n')[0] }) : null,
-    ]),
-    checkButton({
-      value: t.done ? 1 : 0, target: 1, color: tint, flashKey: t.id,
-      label: t.done ? `${t.title} wieder öffnen` : `${t.title} abhaken`,
-      onTap: () => { S.toggleTodo(t.id); renderTodos(listId); },
-    }),
-  ]);
+  row.className = `row tappable${t.color ? ' tinted' : ''}${t.done ? ' is-done dimmed' : ''}`;
+  if (t.color) row.setAttribute('style', S.tintStyle(t.color, isDark));
+  else row.removeAttribute('style');
 
-  // Gerade abgehakt? Dann einmal in der eigenen Farbe aufleuchten.
-  if (t.done) applyFlash(row, t.id);
+  const body = el('div', { class: 'row-body' }, [
+    el('div', { class: 'row-title', text: t.title }),
+    meta.length ? el('div', { class: 'row-meta' }, meta) : null,
+    t.note && meta.length ? el('div', { class: 'row-note', text: t.note.split('\n')[0] }) : null,
+  ].filter(Boolean));
 
-  row.addEventListener('click', (e) => {
-    // wasSwipe() deckt beides ab: den Nachklapp einer Wischgeste und den
-    // Tipp, der nur einen offenen Wisch-Knopf geschlossen hat.
-    if (isDragging() || wasSwipe() || e.target.closest('.check, .swipe-action')) return;
-    openTodoEditor(listId, t.id);
-  });
+  const alt = row.querySelector('.row-body');
+  if (alt) alt.replaceWith(body); else row.append(body);
 
-  const wrap = el('div', { class: 'sort-wrap todo-wrap', dataset: { id: t.id, depth: String(depth) } }, [row]);
+  /* Der Abhak-Knopf wird nie ausgetauscht, nur nachgezogen. Ein ersetzter Knopf
+     ist ein neues Element, und auf einem neuen Element läuft kein `transition`
+     – der Fortschrittsring spränge von Schritt zu Schritt, statt zu wandern. */
+  const label = t.done ? `${t.title} wieder öffnen` : `${t.title} abhaken`;
+  const check = row.querySelector('.check');
+  if (check) paintCheck(check, { value: t.done ? 1 : 0, target: 1, color: tint, label });
+  else row.append(checkButton({
+    value: t.done ? 1 : 0, target: 1, color: tint, label,
+    onTap: () => toggleFrom(row, t.id, listId, isDark),
+  }));
+}
 
-  /* Wischen nach rechts rückt ein bzw. aus – der Weg, den iOS-Nutzer von
-     Apple Erinnerungen kennen. Das Ziehen bleibt als zweiter Weg. */
-  if (draggable) {
-    attachSwipe(wrap, row, {
-      blocked: isDragging,
-      canIndent: () => S.canIndent(t.id, MAX_DEPTH),
-      canOutdent: () => S.canOutdent(t.id),
-      onIndent: () => { S.indentTodo(t.id, MAX_DEPTH); renderTodos(listId); },
-      onOutdent: () => { S.outdentTodo(t.id); renderTodos(listId); },
-    });
+/**
+ * Abhaken, ohne die Liste neu zu bauen.
+ *
+ * 1. Der Store sagt, wer sich wirklich geändert hat – das sind die Zeile
+ *    selbst, ihre Unteraufgaben und alle Überaufgaben, die dadurch voll
+ *    bzw. wieder offen werden.
+ * 2. Genau diese Zeilen werden aufgefrischt.
+ * 3. Die angetippte leuchtet auf – und zwar diese, nicht ein Nachbau.
+ * 4. Erst wenn das Leuchten durch ist, verschwinden die Zeilen, die nach der
+ *    Einstellung nicht mehr in die Liste gehören. Sonst wäre die Rückmeldung
+ *    weg, bevor man sie gesehen hat.
+ */
+function toggleFrom(row, id, listId, isDark) {
+  const changed = S.toggleTodo(id);
+  if (!changed.length) return;
+
+  const host = $('#todo-list');
+  for (const cid of changed) {
+    const other = host.querySelector(`.todo-wrap[data-id="${cid}"] > .row`);
+    if (other) fillRow(other, S.todo(cid), listId, isDark);
   }
-  return wrap;
+
+  const nowDone = !!S.todo(id)?.done;
+  updateTodoCounters(listId);
+
+  if (S.settings().doneTodos === 'show') {
+    if (nowDone) flashRow(row);
+    renderDoneSection(listId, isDark);
+    return;
+  }
+
+  // Abgehakte verlassen die Liste, wieder geöffnete kommen zurück. Das Zurück
+  // braucht eine Einsortierung an der richtigen Stelle – dafür ist ein
+  // vollständiger Aufbau ehrlicher als ein halbherziges Einfügen.
+  if (!nowDone) { renderTodos(listId); return; }
+
+  const leaving = changed
+    .map(cid => host.querySelector(`.todo-wrap[data-id="${cid}"]`))
+    .filter(Boolean);
+
+  // Erst leuchten lassen, dann zusammenfallen – nicht beides gleichzeitig.
+  flashRow(row, () => collapseAway(leaving, () => {
+    renderDoneSection(listId, isDark);
+    updateTodoCounters(listId);
+    $('#todos-empty').hidden = host.children.length > 0 || !!$('#todos-done').children.length;
+  }));
+}
+
+/** Zählt die Kopfzeile und den Listen-Reiter neu – ohne die Liste anzufassen. */
+function updateTodoCounters(listId) {
+  const st = listStats(listId);
+  const sub = $('#todos-subtitle');
+  sub.textContent = st.open
+    ? `${st.open} offen${st.overdue ? ` · ${st.overdue} überfällig` : ''}`
+    : (st.total ? 'Alles erledigt' : '');
+  sub.classList.toggle('has-overdue', st.overdue > 0);
+  renderListBar(listId);
+}
+
+/** Der Abschnitt „Erledigt" unter der Liste. */
+function renderDoneSection(listId, isDark) {
+  const doneHost = $('#todos-done');
+  const showDone = S.settings().doneTodos === 'show';
+  const doneItems = showDone ? [] : S.todosOf(listId).filter((t) => t.done)
+    .sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt)));
+
+  if (!doneItems.length) { doneHost.replaceChildren(); return; }
+
+  const list = el('div', { class: 'list' });
+  list.hidden = !S.groupOpen('todosDone');
+  list.append(...doneItems.map((t) => todoRow({ todo: t, depth: 0 }, listId, isDark, { draggable: false })));
+  doneHost.replaceChildren(el('div', { class: 'group-section' }, [
+    sectionToggle({
+      label: 'Erledigt', count: doneItems.length, open: S.groupOpen('todosDone'),
+      onToggle: (next) => { list.hidden = !next; S.setGroupOpen('todosDone', next); },
+    }),
+    list,
+  ]));
 }
 
 /* ---------- Aufgabe anlegen und bearbeiten ---------- */

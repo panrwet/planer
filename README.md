@@ -51,8 +51,17 @@ würde „0 von 2".
 
 **Suche**
 - Ein Feld über alles: Habits, Aufgaben samt Notizen, Listen und Einstellungen
-- Treffer nach Bereich gruppiert, Suchbegriff hervorgehoben, Antippen führt zum
-  Ziel – bei einer Einstellung wird sie kurz hervorgehoben
+- **Verträgt Tippfehler**: „Vitmine" findet „Vitamine", „Krafttraning" findet
+  „Krafttraining". Gerechnet wird der Editierabstand bis zum besten
+  Wortanfang – ohne das fände „Vitmin" nichts, weil die fehlenden Buchstaben
+  am Ende sonst mitzählen. Ab vier Buchstaben ist ein Fehler erlaubt, ab
+  sieben zwei; kürzere Wörter müssen wörtlich passen, sonst passt alles auf
+  alles
+- Wörtliche Treffer stehen immer vor geratenen
+- Treffer nach Bereich gruppiert, die getroffene Stelle hervorgehoben – auch
+  wenn sie nur ähnlich geschrieben war. Wo die Stelle liegt, sagt
+  `store.matchSpan()`, damit die Regeln zum Falten der Umlaute nur einmal
+  existieren
 - Ein neuer Bereich braucht nur einen Block in `store.search()`
 
 **Habits**
@@ -122,13 +131,31 @@ würde „0 von 2".
 - „Bewegung reduzieren" schaltet Animationen ab, das Aufleuchten bleibt: Es ist
   ein reiner Farbwechsel und die einzige sichtbare Rückmeldung beim Abhaken
 
+**Zuletzt gelöscht**
+- Löschen ist umkehrbar: Habits, Listen und Aufgaben wandern in einen
+  Papierkorb und bleiben dort 30 Tage, dann räumt die App von selbst auf
+- Ein Eintrag hält alles beisammen, was zum Wiederherstellen nötig ist – bei
+  einer Liste ihre Aufgaben samt Verschachtelung, bei einem Habit sein
+  gesamter Verlauf
+- Zwischenzeitlich kann sich die Welt verändert haben. Fehlt die ursprüngliche
+  Liste, landet die Aufgabe in der ersten vorhandenen; gibt es gar keine mehr,
+  wird „Wiederhergestellt" angelegt; ist eine Kennung inzwischen vergeben,
+  bekommt der Eintrag eine neue. Die Meldung sagt jedes Mal, was angepasst
+  wurde, statt still etwas anderes zu tun
+- Erreichbar über **Einstellungen → Zuletzt gelöscht**, mit Zähler
+
 **Einstellungen**
 - Abgehakte Habits ausblenden oder ausgrauen
 - Erledigte Aufgaben ausblenden oder anzeigen
 - Zeilenhöhe klein / mittel / groß
+- **Farbstärke** aus / dezent / normal / kräftig – wie kräftig die eigene Farbe
+  ihr Objekt tönt und rahmt. Bei „Aus" bleiben die Zeilen neutral und Emoji,
+  Name und Fortschrittsring tragen die Farbe; das beruhigt eine lange, bunte
+  Liste. Die Stufen stehen als `--tint-bg`, `--tint-edge`, `--tint-chip` und
+  `--tint-bar` an einer Stelle im Stylesheet
 - Design hell / dunkel / System
 - Tageswechsel wahlweise erst um 3 Uhr nachts
-- Sichern, Wiederherstellen, alles löschen
+- Zuletzt gelöscht, Sichern, Wiederherstellen, alles löschen
 
 ## Aufbau
 
@@ -153,7 +180,7 @@ js/search.js            Freie Suche über alle Bereiche
 js/emoji.js             Emoji-Suche mit deutschem Wortstamm-Abgleich
 js/emoji-data.js        erzeugt – 1949 Emojis mit deutschen Namen
 tools/build-emoji.mjs   erzeugt emoji-data.js aus den CLDR-Daten
-js/settings.js          Einstellungen, Sicherung
+js/settings.js          Einstellungen, Papierkorb, Sicherung
 js/app.js               Router und Verdrahtung
 test/store.test.mjs     Tests der Rechenlogik
 test/emoji.test.mjs     Tests der Emoji-Suche
@@ -198,6 +225,9 @@ Kennungen. Bisher:
 - `toSchema4` – ein Ziel pro Intervall statt Tagesziel *und* Tage-pro-Woche.
   „20 Seiten an 3 Tagen pro Woche" wird „60 Seiten pro Woche"; die erfassten
   Tageswerte bleiben unverändert und werden ab dann über das Intervall summiert.
+- `toSchema5` – nichts umzubauen: Der Papierkorb kommt als leeres Feld dazu.
+  Die Stufe existiert trotzdem, damit ein älterer Stand einmal durch die
+  Bereinigung läuft und danach die neue Nummer trägt.
 
 Wer eine Migration ergänzt, zählt `SCHEMA` hoch und hängt einen Schritt an. Die
 Tests prüfen die ganze Kette von einem Stand ohne Versionsnummer bis heute,
@@ -213,6 +243,41 @@ Sonst würde ein zweites offenes Fenster (Safari-Tab neben der App vom
 Home-Bildschirm) beim Verlassen seinen alten Stand über die neueren Daten
 schreiben. Ändert eine andere Instanz etwas, übernimmt die App den neuen Stand
 über das `storage`-Ereignis.
+
+## Die Zeile
+
+Habits und Aufgaben teilen sich denselben Zeilenaufbau, und für beide gilt
+dieselbe Regel: **Eine Zeile wird einmal gebaut und danach nur noch
+nachgefüllt.** Gebaut wird in `todoRow()` bzw. `habitRow()`, gefüllt in
+`fillRow()` bzw. `fillHabitRow()`. Abhaken ruft nur das Füllen auf.
+
+Das hat drei Gründe, und alle drei waren vorher sichtbar kaputt:
+
+1. **Geschwindigkeit.** Früher baute jeder Haken die ganze Liste neu. Bei 300
+   Aufgaben dauerte ein Haken bis zum fertigen Bild 195 ms, bei 800 über
+   400 ms. Jetzt sind es 34 bzw. 40 ms – praktisch unabhängig davon, wie lang
+   die Liste ist. Welche Zeilen überhaupt betroffen sind, sagt `toggleTodo()`
+   zurück: die Aufgabe selbst, ihre Unteraufgaben und jede Überaufgabe, die
+   dadurch voll oder wieder offen wird.
+2. **Der Fortschrittsring.** Ein `transition` läuft nur auf einem Element, das
+   schon da war. Solange der Abhak-Knopf ausgetauscht wurde, sprang der Ring
+   von 1/3 auf 2/3, obwohl das Stylesheet einen Übergang versprach. `paintCheck()`
+   zieht denselben Knopf nach, statt ihn zu ersetzen – jetzt wandert er.
+3. **Das Aufleuchten.** Eine ausgetauschte Zeile bricht ihre eigene Animation
+   ab. Jetzt leuchtet die angetippte Zeile selbst, und erst wenn das Leuchten
+   durch ist, fällt sie zusammen und wandert nach „Erledigt" – vorher lief
+   beides gleichzeitig und die Rückmeldung war weg, bevor man sie sah.
+
+Vollständig neu gebaut wird nur, wo es sein muss: beim Listenwechsel, nach dem
+Sortieren, und wenn eine abgehakte Zeile wieder geöffnet wird – die muss an der
+richtigen Stelle einsortiert werden, und dafür ist ein sauberer Neuaufbau
+ehrlicher als ein halbherziges Einfügen.
+
+`test/browser.mjs` prüft genau das: eine markierte Zeile und ihr markierter
+Knopf müssen ein Abhaken nebenan unangetastet überstehen, der Ring muss sich
+messbar bewegt haben, und die Zeile darf nicht zusammenfallen, solange sie noch
+leuchtet. Ohne diese Prüfungen wäre der nächste bequeme `renderTodos()`-Aufruf
+im Abhak-Pfad nicht aufgefallen.
 
 ## Entwickeln
 
