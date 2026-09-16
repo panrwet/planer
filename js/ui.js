@@ -324,9 +324,19 @@ export function switchBtn(on, onChange) {
 }
 
 /** Eine Zeile in den Einstellungen. */
-export function settingRow({ id, title, desc, control, onClick, danger }) {
+/**
+ * Eine Zeile in den Einstellungen.
+ *
+ * Eine Auswahl mit mehreren Schaltflächen kommt immer unter den Text, nicht
+ * daneben: Daneben blieb der Beschreibung eine Spalte von der Breite eines
+ * Wortes. Das entscheidet die Funktion selbst am Bedienelement, statt es jeder
+ * Aufrufstelle zu überlassen – sonst vergisst es die nächste neue Einstellung.
+ * @param {boolean} [stacked] überschreibt diese Entscheidung.
+ */
+export function settingRow({ id, title, desc, control, onClick, danger, stacked }) {
+  const untereinander = stacked ?? !!control?.classList?.contains('segmented');
   const node = el(onClick ? 'button' : 'div', {
-    class: `setting${onClick ? ' tappable' : ''}${danger ? ' danger' : ''}`,
+    class: `setting${onClick ? ' tappable' : ''}${danger ? ' danger' : ''}${untereinander ? ' stacked' : ''}`,
     type: onClick ? 'button' : null,
     dataset: id ? { setting: id } : null,
   }, [

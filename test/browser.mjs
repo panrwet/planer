@@ -862,6 +862,21 @@ await step('Tippziele mindestens 28px', async () => {
   if (small.length) throw new Error(small.slice(0, 5).join(', '));
 });
 
+await step('keine Einstellung quetscht ihren Beschreibungstext', async () => {
+  // Ein breites Bedienelement daneben ließ der Beschreibung einmal eine Spalte
+  // von der Breite eines Wortes. Geprüft wird die tatsächliche Textbreite.
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(320);
+  await page.locator('.home-tile').filter({ hasText: 'Einstellungen' }).tap();
+  await wait(500);
+  const eng = await page.evaluate(() => [...document.querySelectorAll('.setting-desc')]
+    .map(n => ({ w: Math.round(n.getBoundingClientRect().width),
+                 t: n.textContent.slice(0, 26) }))
+    .filter(x => x.w < 150)
+    .map(x => `${x.w}px: „${x.t}…"`));
+  if (eng.length) throw new Error(eng.join(' · '));
+});
+
 await step('dunkles Design auf allen Bildschirmen', async () => {
   await page.locator('.tab[data-goto=home]').tap();
   await wait(300);
