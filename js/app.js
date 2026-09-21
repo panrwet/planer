@@ -10,7 +10,7 @@ import {
 } from './todos.js';
 import { renderSettings, renderTrash, bindApply, bindSettingsNavigate, flashSetting } from './settings.js';
 import { renderHome, bindNavigate as bindHomeNav } from './home.js';
-import { renderCalendar, renderDayPlan, setMonthOf, setDay, currentDay,
+import { renderCalendar, renderDayPlan, setDay, currentDay,
          stepMonth, stepDay, jumpToToday, bindOpenDay, openPlanPicker } from './calendar.js';
 import { renderSearch, clearSearch, bindNavigate as bindSearchNav } from './search.js';
 import { warmUp as warmEmoji } from './emoji.js';
@@ -61,7 +61,7 @@ const SCREENS = {
 function show(screen, arg) {
   if (screen === 'detail') view.habitId = arg;
   if (screen === 'settings') view.settingId = arg || null;
-  if (screen === 'calendar') setMonthOf(arg || currentDay() || S.today());
+  if (screen === 'calendar') setDay(arg || currentDay() || S.today());
   if (screen === 'day') setDay(arg || currentDay() || S.today());
   // Von der Startseite aus kann eine Häufigkeits-Gruppe gezielt geöffnet werden
   if (screen === 'habits' && arg) S.setGroupOpen(arg, true);
@@ -152,7 +152,8 @@ $('#trash-back').addEventListener('click', () => show('settings'));
 /* ---------- Kalender ---------- */
 $('#calendar-prev').addEventListener('click', () => stepMonth(-1));
 $('#calendar-next').addEventListener('click', () => stepMonth(1));
-$('#calendar-today').addEventListener('click', () => { jumpToToday(); show('day', S.today()); });
+// Heute wählt den Tag im Raster aus; der Plan ist dann einen Tipp entfernt.
+$('#calendar-today').addEventListener('click', () => jumpToToday());
 bindOpenDay((key) => show('day', key));
 
 $('#day-back').addEventListener('click', () => show('calendar', currentDay()));

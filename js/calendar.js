@@ -31,8 +31,15 @@ let month = null;      // Tagesschlüssel im angezeigten Monat
 let day = null;        // Tagesschlüssel des offenen Tages
 let clockTimer = null;
 
-export function setMonthOf(key) { month = monthStart(key || S.today()); }
-export function setDay(key) { day = key || S.today(); }
+/* Monat und ausgewählter Tag hängen zusammen: Das Monatsraster hebt den
+   ausgewählten Tag hervor und zeigt ihn darunter im Einzelnen, der Tagesplan
+   und der Wochenstreifen zeigen denselben Tag. Ein Zustand für alles – zwei
+   getrennte würden früher oder später auseinanderlaufen und ein September-
+   Raster mit einem Oktober-Tag darunter zeigen. */
+export function setDay(key) {
+  day = key || S.today();
+  month = monthStart(day);
+}
 export function currentDay() { return day; }
 
 /** Montag zuerst: weekdayOf liefert 0 für Sonntag. */
@@ -43,7 +50,7 @@ const weekIndex = (key) => (weekdayOf(key) + 6) % 7;
    ========================================================================== */
 
 export function renderCalendar() {
-  if (!month) setMonthOf(S.today());
+  if (!day) setDay(S.today());
   const scroll = $('#calendar-scroll');
   const first = monthStart(month);
   const today = S.today();
@@ -69,46 +76,93 @@ export function renderCalendar() {
   const grid = el('div', { class: 'cal-grid' });
   for (const c of cells) {
     const n = parseKey(c.key).getDate();
+    const gewaehlt = c.key === day;
     const cell = el('button', {
-      class: `cal-day${c.fremd ? ' foreign' : ''}${c.key === today ? ' today' : ''}`,
+      class: `cal-day${c.fremd ? ' foreign' : ''}${c.key === today ? ' today' : ''}${gewaehlt ? ' selected' : ''}`,
       type: 'button',
       dataset: { key: c.key },
       'aria-label': `${n}. ${MONTHS[parseKey(c.key).getMonth()]}${belegt.has(c.key) ? ', etwas geplant' : ''}`,
+      'aria-current': gewaehlt ? 'date' : null,
     }, [
       el('span', { class: 'cal-num', text: String(n) }),
       el('span', { class: `cal-dot${belegt.has(c.key) || (c.fremd && S.hasPlanOn(c.key)) ? ' on' : ''}` }),
     ]);
-    cell.addEventListener('click', () => { haptic(); openDay(c.key); });
+    /* Der erste Tipp wählt den Tag aus und zeigt ihn darunter, der zweite
+       öffnet den Plan. So sieht man erst, was ansteht, ohne den Kalender zu
+       verlassen – und kommt mit einem weiteren Tipp doch hinein. */
+    cell.addEventListener('click', () => {
+      haptic();
+      if (gewaehlt) { openDay(c.key); return; }
+      setDay(c.key);
+      renderCalendar();
+    });
     grid.append(cell);
   }
 
   scroll.replaceChildren(
     el('div', { class: 'cal-weekdays' }, WEEK_LETTERS.map(w => el('span', { text: w }))),
     grid,
-    monthSummary(month, belegt),
+    dayPreview(),
   );
 }
 
-/** Kurzer Überblick unter dem Raster: wie viel dieser Monat trägt. */
-function monthSummary(key, belegt) {
-  let eintraege = 0;
-  for (const d of belegt) eintraege += S.planOn(d).length;
-  if (!eintraege) {
-    return el('p', { class: 'cal-note', text: 'In diesem Monat ist nichts geplant. Tippe auf einen Tag.' });
-  }
-  return el('p', {
-    class: 'cal-note',
-    text: `${eintraege} ${eintraege === 1 ? 'Eintrag' : 'Einträge'} an ${belegt.size} ${belegt.size === 1 ? 'Tag' : 'Tagen'}.`,
-  });
+/**
+ * Der ausgewählte Tag im Einzelnen, direkt unter dem Raster: alles Geplante
+ * untereinander mit seiner Uhrzeit. Die ganze Fläche ist ein Knopf in den
+ * Tagesplan – hier wird nur gezeigt, nicht geändert.
+ */
+function dayPreview() {
+  const entries = S.planOn(day);
+  const heute = day === S.today();
+  const isDark = document.documentElement.dataset.resolved === 'dark';
+
+  const kopf = el('div', { class: 'cal-day-head' }, [
+    el('div', {}, [
+      el('div', { class: `cal-day-name${heute ? ' is-today' : ''}`,
+        text: parseKey(day).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }) }),
+      el('div', { class: 'cal-day-count', text: entries.length
+        ? `${entries.length} ${entries.length === 1 ? 'Eintrag' : 'Einträge'}${
+            entries.every(x => x.done) ? ' · alles erledigt' : ''}`
+        : 'Nichts geplant · tippen zum Planen' }),
+    ]),
+    el('span', { class: 'cal-day-chev', html: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>' }),
+  ]);
+
+  const liste = el('div', { class: 'cal-day-list' }, entries.map((e) => {
+    const c = e.color ? S.colorOf(e.color) : null;
+    return el('div', {
+      class: `cal-entry${e.done ? ' is-done' : ''}`,
+      style: c ? `--tint:${isDark ? c.dark : c.light}` : null,
+    }, [
+      el('span', { class: 'cal-entry-time', text: e.plan.time }),
+      el('span', { class: 'cal-entry-bar' }),
+      el('span', { class: 'cal-entry-title' }, [
+        e.emoji ? el('span', { class: 'cal-entry-emoji', text: e.emoji }) : null,
+        el('span', { text: e.title }),
+      ].filter(Boolean)),
+      e.plan.repeat ? el('span', { class: 'cal-entry-mark', text: '↻', title: 'dauerhaft' }) : null,
+    ].filter(Boolean));
+  }));
+
+  const knopf = el('button', { class: 'cal-day-card', type: 'button',
+    'aria-label': `Tagesplan für ${parseKey(day).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })} öffnen` },
+    entries.length ? [kopf, liste] : [kopf]);
+  knopf.addEventListener('click', () => { haptic(); openDay(day); });
+  return knopf;
 }
 
 export function stepMonth(n) {
-  month = monthStart(addMonths(month || S.today(), n));
+  /* Der ausgewählte Tag wandert mit, damit die Ansicht darunter zum Raster
+     passt: gleicher Tag im neuen Monat, bei kürzeren Monaten der letzte. */
+  const ziel = monthStart(addMonths(month || S.today(), n));
+  const tage = monthDays(ziel);
+  const wunsch = parseKey(day || S.today()).getDate();
+  setDay(tage[Math.min(wunsch, tage.length) - 1]);
   renderCalendar();
 }
 
 export function jumpToToday() {
-  setMonthOf(S.today());
+  setDay(S.today());
   renderCalendar();
 }
 

@@ -732,6 +732,29 @@ await step('Suche findet trotz Tippfehler und markiert die Stelle', async () => 
 /* ========================================================================== */
 group('Kalender');
 
+/**
+ * Öffnet den Tagesplan von heute. Im Kalender wählt der erste Tipp einen Tag
+ * nur aus, erst der zweite öffnet den Plan – welcher Tag gerade ausgewählt
+ * ist, weiß der Aufrufer aber nicht. Deshalb wird getippt, bis der Plan steht.
+ */
+async function openDayPlan() {
+  await page.locator('.tab[data-goto=calendar]').tap();
+  await wait(420);
+  for (let i = 0; i < 2 && !await page.locator('#screen-day').isVisible(); i++) {
+    await page.locator('.cal-day.today').tap();
+    await wait(620);
+  }
+  if (!await page.locator('#screen-day').isVisible()) throw new Error('Tagesplan öffnet nicht');
+}
+
+/** Wie ein Tag im Raster gezeichnet ist – Fläche, Ring und Textfarbe. */
+const tagStil = (sel) => page.evaluate((s) => {
+  const n = document.querySelector(s);
+  if (!n) return null;
+  const cs = getComputedStyle(n.querySelector('.cal-num'));
+  return { flaeche: cs.backgroundColor, ring: cs.boxShadow, farbe: cs.color };
+}, sel);
+
 /** Setzt Planung über den Store und öffnet den Kalender. */
 async function seedPlan() {
   await seed();
@@ -811,13 +834,136 @@ await step('Monatswechsel und Sprung zu heute', async () => {
   if (await page.locator('#calendar-today').isVisible()) throw new Error('Heute-Knopf steht im eigenen Monat');
 });
 
+await step('heute trägt einen roten Ring, der ausgewählte Tag den gefüllten Kreis', async () => {
+  await seedPlan();
+  // Beim Öffnen ist heute ausgewählt – dann gewinnt der gefüllte Kreis in Rot,
+  // sonst wäre nicht zu sehen, wo man steht.
+  const zusammen = await tagStil('.cal-day.today');
+  if (!/rgb\(217, 61, 66\)|rgb\(255, 99, 105\)/.test(zusammen.flaeche)) {
+    throw new Error(`heute+ausgewählt nicht rot gefüllt: ${zusammen.flaeche}`);
+  }
+
+  // Einen anderen Tag wählen: heute bekommt den Ring, der andere die Füllung.
+  const anderer = await page.evaluate(() => {
+    const h = document.querySelector('.cal-day.today').dataset.key;
+    return [...document.querySelectorAll('.cal-day:not(.foreign)')].map(n => n.dataset.key).find(k => k !== h);
+  });
+  await page.locator(`.cal-day[data-key="${anderer}"]`).tap();
+  await wait(480);
+
+  const heute = await tagStil('.cal-day.today');
+  if (!/inset/.test(heute.ring)) throw new Error(`heute ohne Ring: ${heute.ring}`);
+  if (heute.flaeche !== 'rgba(0, 0, 0, 0)') throw new Error(`heute noch gefüllt: ${heute.flaeche}`);
+  const gewaehlt = await tagStil('.cal-day.selected');
+  if (gewaehlt.flaeche === 'rgba(0, 0, 0, 0)') throw new Error('Auswahl nicht gefüllt');
+  if (gewaehlt.flaeche === heute.farbe) throw new Error('Auswahl und heute sehen gleich aus');
+});
+
+await step('erster Tipp wählt aus und zeigt den Tag, ohne den Kalender zu verlassen', async () => {
+  await seedPlan();
+  const ziel = await page.evaluate(() => {
+    const h = document.querySelector('.cal-day.today').dataset.key;
+    return [...document.querySelectorAll('.cal-day:not(.foreign)')].map(n => n.dataset.key).find(k => k !== h);
+  });
+  await page.locator(`.cal-day[data-key="${ziel}"]`).tap();
+  await wait(480);
+
+  if (!await page.locator('#screen-calendar').isVisible()) throw new Error('Kalender verlassen');
+  if (await page.locator('.cal-day.selected').getAttribute('data-key') !== ziel) throw new Error('nicht ausgewählt');
+  const erwartet = await page.evaluate(k => new Date(`${k}T12:00:00`)
+    .toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }), ziel);
+  if (await page.locator('.cal-day-name').innerText() !== erwartet) {
+    throw new Error(`Kopf: „${await page.locator('.cal-day-name').innerText()}" statt „${erwartet}"`);
+  }
+});
+
+await step('die Ansicht listet alles Geplante mit Uhrzeit, nach Zeit sortiert', async () => {
+  await seedPlan();
+  const gezeigt = await page.locator('.cal-entry').evaluateAll(ns => ns.map(n => ({
+    zeit: n.querySelector('.cal-entry-time').textContent,
+    titel: n.querySelector('.cal-entry-title').textContent,
+    erledigt: n.classList.contains('is-done'),
+  })));
+  const erwartet = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return S.planOn(S.today()).map(e => ({ zeit: e.plan.time, titel: e.title, erledigt: e.done }));
+  });
+  if (gezeigt.length !== erwartet.length) throw new Error(`${gezeigt.length} statt ${erwartet.length} Einträge`);
+  for (let i = 0; i < erwartet.length; i++) {
+    if (gezeigt[i].zeit !== erwartet[i].zeit) throw new Error(`Zeile ${i}: ${gezeigt[i].zeit} statt ${erwartet[i].zeit}`);
+    if (!gezeigt[i].titel.includes(erwartet[i].titel)) throw new Error(`Zeile ${i}: „${gezeigt[i].titel}"`);
+    if (gezeigt[i].erledigt !== erwartet[i].erledigt) throw new Error(`Zeile ${i}: Zustand falsch`);
+  }
+  const zeiten = gezeigt.map(x => x.zeit);
+  if (zeiten.join() !== [...zeiten].sort().join()) throw new Error(`nicht sortiert: ${zeiten.join(' ')}`);
+});
+
+await step('leerer Tag lädt zum Planen ein', async () => {
+  const leer = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return [...document.querySelectorAll('.cal-day:not(.foreign)')]
+      .map(n => n.dataset.key).find(k => !S.hasPlanOn(k));
+  });
+  if (!leer) throw new Error('kein leerer Tag im Monat');
+  await page.locator(`.cal-day[data-key="${leer}"]`).tap();
+  await wait(480);
+  if (await page.locator('.cal-entry').count()) throw new Error('zeigt Einträge');
+  if (!/Nichts geplant/.test(await page.locator('.cal-day-count').innerText())) {
+    throw new Error(await page.locator('.cal-day-count').innerText());
+  }
+});
+
+await step('zweiter Tipp auf denselben Tag öffnet den Plan', async () => {
+  await seedPlan();
+  const ziel = await page.locator('.cal-day.selected').getAttribute('data-key');
+  await page.locator(`.cal-day[data-key="${ziel}"]`).tap();
+  await wait(680);
+  if (!await page.locator('#screen-day').isVisible()) throw new Error('Plan nicht offen');
+  const erwartet = await page.evaluate(k => new Date(`${k}T12:00:00`)
+    .toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }), ziel);
+  if (await page.locator('#day-title').innerText() !== erwartet) throw new Error(await page.locator('#day-title').innerText());
+});
+
+await step('Tipp auf die Ansicht öffnet denselben Plan', async () => {
+  await seedPlan();
+  const ziel = await page.locator('.cal-day.selected').getAttribute('data-key');
+  await page.locator('.cal-day-card').tap();
+  await wait(680);
+  if (!await page.locator('#screen-day').isVisible()) throw new Error('Plan nicht offen');
+  // Zurück: die Auswahl steht noch, wo sie war.
+  await page.locator('#day-back').tap();
+  await wait(520);
+  if (await page.locator('.cal-day.selected').getAttribute('data-key') !== ziel) {
+    throw new Error('Auswahl nach dem Zurückgehen verloren');
+  }
+});
+
+await step('Monatswechsel nimmt den Tag mit, Heute holt ihn zurück', async () => {
+  await seedPlan();
+  const vorher = await page.locator('.cal-day.selected').getAttribute('data-key');
+  await page.locator('#calendar-next').tap();
+  await wait(480);
+  const nachher = await page.locator('.cal-day.selected').getAttribute('data-key');
+  if (nachher.slice(8) !== vorher.slice(8)) throw new Error(`${vorher} → ${nachher}: Tag im Monat gewechselt`);
+  if (nachher.slice(0, 7) === vorher.slice(0, 7)) throw new Error('Monat nicht gewechselt');
+  // Die Ansicht darunter gehört zum Raster, nicht zum alten Monat
+  const monatImKopf = await page.locator('.cal-day-name').innerText();
+  const monatImTitel = (await page.locator('#calendar-title').innerText()).split(' ')[0];
+  if (!monatImKopf.includes(monatImTitel)) throw new Error(`„${monatImKopf}" passt nicht zu ${monatImTitel}`);
+
+  await page.locator('#calendar-today').tap();
+  await wait(480);
+  const heute = await page.evaluate(async () => (await import('/js/store.js')).today());
+  if (await page.locator('.cal-day.selected').getAttribute('data-key') !== heute) throw new Error('Heute wählt nicht heute');
+  if (!await page.locator('#screen-calendar').isVisible()) throw new Error('Heute springt in den Plan');
+});
+
 /* ========================================================================== */
 group('Tagesplan');
 
 await step('Tag öffnen, Stundenraster steht', async () => {
   await seedPlan();
-  await page.locator('.cal-day.today').tap();
-  await wait(650);
+  await openDayPlan();
   if (!await page.locator('#screen-day').isVisible()) throw new Error('nicht sichtbar');
   if (await page.locator('.day-hour').count() !== 24) throw new Error('nicht 24 Stunden');
   const beschriftung = await page.locator('.day-hour-label').first().innerText();
@@ -913,10 +1059,7 @@ group('Einplanen');
     zwangsläufig in eine Zeitüberschreitung. */
 async function openPicker() {
   await clearOverlays();          // ein offenes Sheet fängt den Tipp sonst ab
-  await page.locator('.tab[data-goto=calendar]').tap();
-  await wait(420);
-  await page.locator('.cal-day.today').tap();
-  await wait(620);
+  await openDayPlan();
   await page.locator('#day-add').tap();
   await wait(520);
 }
@@ -997,10 +1140,7 @@ await step('dauerhaft folgt dem Rhythmus des Habits', async () => {
 });
 
 await step('einzelnen Tag aus der Reihe nehmen lässt die Reihe stehen', async () => {
-  await page.locator('.tab[data-goto=calendar]').tap();
-  await wait(420);
-  await page.locator('.cal-day.today').tap();
-  await wait(620);
+  await openDayPlan();
   await page.locator('.day-block').filter({ hasText: 'Laufen' }).first().tap();
   await wait(560);
   await page.locator('.sheet-body .btn.danger').tap();
@@ -1129,8 +1269,7 @@ group('Wochenansicht im Tagesplan');
 
 await step('sieben Tage, der offene hervorgehoben', async () => {
   await seedPlan();
-  await page.locator('.cal-day.today').tap();
-  await wait(650);
+  await openDayPlan();
   const tage = await page.locator('#week-strip .week-day').count();
   if (tage !== 7) throw new Error(`${tage} Tage`);
   if (await page.locator('#week-strip .week-day.selected').count() !== 1) throw new Error('Auswahl nicht eindeutig');
@@ -1180,8 +1319,7 @@ group('Gesten im Tagesplan');
 
 await step('Block gedrückt halten und ziehen ändert die Uhrzeit', async () => {
   await seedPlan();
-  await page.locator('.cal-day.today').tap();
-  await wait(700);
+  await openDayPlan();
   const vor = await page.evaluate(async () => {
     const S = await import('/js/store.js');
     return S.planOn(S.today()).map(e => `${e.title} ${e.plan.time}`);
@@ -1357,8 +1495,7 @@ await step('kein Bildschirm scrollt seitlich', async () => {
   // Tagesplan hinter dem Kalender
   await page.locator('.tab[data-goto=calendar]').tap();
   await wait(300);
-  await page.locator('.cal-day.today').tap();
-  await wait(600);
+  await openDayPlan();
   await scan('tagesplan');
   await page.locator('#day-back').tap();
   await wait(320);
@@ -1384,8 +1521,7 @@ await step('kein "null"/"undefined"/"NaN" im Text', async () => {
   }
   await page.locator('.tab[data-goto=calendar]').tap();
   await wait(300);
-  await page.locator('.cal-day.today').tap();
-  await wait(600);
+  await openDayPlan();
   pruefe('tagesplan', await page.locator('.screen.active').innerText());
   if (found.length) throw new Error(found.join(', '));
 });
@@ -1509,8 +1645,7 @@ await step('dunkles Design auf allen Bildschirmen', async () => {
   }
   await page.locator('.tab[data-goto=calendar]').tap();
   await wait(320);
-  await page.locator('.cal-day.today').tap();
-  await wait(620);
+  await openDayPlan();
   await messe('tagesplan');
   await shot('05-tagesplan-dunkel');
 

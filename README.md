@@ -66,10 +66,24 @@ würde „0 von 2".
 
 **Kalender**
 - Vierter Reiter rechts neben der Startseite, Monatsraster im Stil des Apple
-  Kalenders: Wochentage oben, heute im gefüllten Kreis, ein Punkt unter jedem
-  Tag, an dem etwas geplant ist. Tage aus Vor- und Folgemonat füllen das Raster
-  auf, damit es lückenlos von Montag zu Sonntag läuft
-- Ein Tipp auf einen Tag öffnet den **Tagesplan**: Stundenraster von 0 bis 24
+  Kalenders: Wochentage oben, ein Punkt unter jedem Tag, an dem etwas geplant
+  ist. Tage aus Vor- und Folgemonat füllen das Raster auf, damit es lückenlos
+  von Montag zu Sonntag läuft
+- Drei Zustände, die sich nicht in die Quere kommen: **heute** trägt einen
+  roten Ring, der **ausgewählte** Tag den gefüllten Kreis im Akzent, und ist
+  beides derselbe Tag, gewinnt der gefüllte Kreis in Rot – sonst wäre nicht zu
+  sehen, wo man steht
+- Unter dem Raster steht der **ausgewählte Tag** mit Namen und allem Geplanten
+  untereinander: Uhrzeit, Farbbalken, Name. Erledigtes ist durchgestrichen,
+  Dauerhaftes mit ↻ markiert. Der erste Tipp auf einen Tag wählt ihn hier aus,
+  ohne den Kalender zu verlassen; der zweite – oder ein Tipp auf die Ansicht –
+  öffnet den Tagesplan. Geändert wird hier nichts, es ist eine Vorschau
+- Monat und ausgewählter Tag sind **ein** Zustand: Beim Monatswechsel wandert
+  der Tag mit (gleicher Tag im neuen Monat, bei kürzeren Monaten der letzte),
+  und der Tagesplan zeigt immer den Tag, der im Raster hervorgehoben ist. Zwei
+  getrennte Zustände würden ein September-Raster mit einem Oktober-Tag darunter
+  zeigen
+- Der **Tagesplan**: Stundenraster von 0 bis 24
   Uhr, Einträge als Blöcke in ihrer Farbe, Höhe nach Dauer, Überlappungen
   nebeneinander, am heutigen Tag eine Linie für die aktuelle Uhrzeit. Der Plan
   springt beim Öffnen zur ersten Uhrzeit, sonst zur laufenden Stunde
