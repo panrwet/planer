@@ -266,7 +266,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 
 /* Die eigene Farbe rahmt die Zeile ein und tönt sie leicht – so tritt jedes
-   Habit bzw. jede Aufgabe als eigenes Objekt hervor. */
+   Habit bzw. jede To-do als eigenes Objekt hervor. */
 .row.tinted {
   border-color: color-mix(in oklab, var(--tint) var(--tint-edge), var(--border));
   background: color-mix(in oklab, var(--tint) var(--tint-bg), var(--surface));
@@ -427,7 +427,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 
 /* Abgehaktes verlässt die Liste, indem es zusammenfällt – nicht indem es
-   verschwindet. Gilt für Aufgaben und Habits gleichermaßen: beide sind
+   verschwindet. Gilt für To-dos und Habits gleichermaßen: beide sind
    .sort-wrap. Der negative Abstand nach unten hebt die Lücke der Liste auf,
    sonst bliebe während des Zusammenfallens ein Loch stehen. */
 .sort-wrap.leaving {
@@ -514,6 +514,57 @@ input, textarea { -webkit-user-select: text; user-select: text; }
    Tagesplan
    Stundenraster von oben nach unten, Einträge als Blöcke dazwischen.
    ========================================================================== */
+/* ==========================================================================
+   Wochenstreifen über dem Tagesplan
+   ========================================================================== */
+.week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin: 10px -4px 2px;
+  /* Waagerecht wird gewischt, um die Woche zu wechseln – der Browser darf die
+     Geste nicht für sich beanspruchen. Senkrecht scrollt hier nichts. */
+  touch-action: none;
+}
+.week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0 5px;
+  border-radius: 11px;
+}
+.week-day:active { background: var(--surface-2); }
+.week-day-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.week-day-num {
+  display: grid;
+  place-items: center;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  font-size: 15.5px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+/* Heute in der Akzentfarbe, der geöffnete Tag im gefüllten Kreis. Ist beides
+   derselbe Tag, gewinnt der Kreis – sonst wäre nicht zu sehen, wo man ist. */
+.week-day.today .week-day-num { color: var(--accent); font-weight: 700; }
+.week-day.selected .week-day-num { background: var(--accent); color: #fff; font-weight: 650; }
+.week-day.selected .week-day-name { color: var(--text-2); }
+
+.week-day-dot {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: transparent;
+}
+.week-day-dot.on { background: var(--accent); }
+.week-day.selected .week-day-dot.on { background: var(--text-3); }
+
 /* Der Titel trägt Wochentag und Datum – in der großen Titelgröße bricht das
    auf zwei Zeilen und schiebt den Plan nach unten. */
 #day-title { font-size: 21px; }
@@ -571,6 +622,9 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   opacity: var(--tint-bar);
 }
 .day-block:active { background: var(--surface-2); }
+/* Wie bei den Zeilen: senkrecht darf gescrollt werden, bis das Halten den
+   Block anhebt – danach hält holdScroll() den Browser davon ab. */
+.day-block { touch-action: pan-y; }
 .day-block.is-done { opacity: .5; }
 .day-block.is-done .day-block-title { text-decoration: line-through; text-decoration-thickness: 1.5px; }
 
@@ -590,6 +644,50 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .day-block-meta.late { color: var(--danger); font-weight: 550; }
+
+/* Angehobener Block: hebt sich ab und folgt dem Finger ohne Übergang, damit
+   er nicht hinter der Bewegung herläuft. */
+.day-block.moving {
+  z-index: 3;
+  transition: none;
+  box-shadow: var(--shadow-2);
+  transform: scale(1.02);
+}
+
+/* Die neue Uhrzeit während des Ziehens, groß und über allem. */
+.day-drag-time {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--safe-t) + 92px);
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow-2);
+  pointer-events: none;
+}
+
+/* Platzhalter, solange auf freier Fläche gehalten wird. */
+.day-slot-hint {
+  position: absolute;
+  left: 0; right: 4px;
+  display: flex;
+  align-items: center;
+  padding-left: 9px;
+  border-radius: 10px;
+  border: 1.5px dashed color-mix(in oklab, var(--accent) 55%, transparent);
+  background: color-mix(in oklab, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
 
 /* Die Linie der aktuellen Uhrzeit – nur am heutigen Tag. */
 .day-now {
@@ -614,7 +712,20 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 
 /* Auswahl beim Einplanen */
-.pick-list { margin: 10px 0 14px; max-height: 44vh; overflow-y: auto; }
+.pick-list { margin: 10px 0 14px; max-height: 40vh; overflow-y: auto; }
+
+/* Listenleiste in der Auswahl – dieselben Reiter wie im To-do-Modul. */
+.pick-lists {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.pick-lists::-webkit-scrollbar { display: none; }
+.pick-lists .list-tab { flex: none; }
 
 .plan-target {
   display: flex; align-items: center; gap: 10px;
@@ -662,7 +773,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 
 /* ==========================================================================
-   Unteraufgaben im Editor
+   Unter-To-dos im Editor
    ========================================================================== */
 .sub-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .sub-list:empty { display: none; }
@@ -1207,6 +1318,11 @@ body.is-dragging .scroll { overflow: hidden; }
   color: var(--text);
 }
 .list-tab:active { transform: scale(.95); }
+
+/* „All" ist der Eingang, keine Liste – deshalb ohne Emoji und ohne eigene
+   Farbe, dafür mit dem Akzent, wenn es aktiv ist. */
+.all-tab { --tint: var(--accent); }
+.all-tab .list-tab-name { font-weight: 650; }
 .list-tab-emoji { font-size: 14px; line-height: 1; }
 .list-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-tab-badge {

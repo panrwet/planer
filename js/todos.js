@@ -1,4 +1,4 @@
-/* Todos: eine Liste pro Reiter in der Leiste unten, darin die Aufgaben.
+/* Todos: eine Liste pro Reiter in der Leiste unten, darin die To-dos.
    Der Pfeil rechts in der Leiste öffnet ein Drop-up mit allen Listen und der
    Listenverwaltung. */
 
@@ -14,7 +14,7 @@ import {
 
 const MAX_DEPTH = 2;   // drei Ebenen: 0, 1, 2
 
-/** Offene und davon überfällige Aufgaben einer Liste. */
+/** Offene und davon überfällige To-dos einer Liste. */
 function listStats(listId) {
   const items = S.todosOf(listId);
   const open = items.filter((t) => !t.done);
@@ -38,7 +38,21 @@ export function renderListBar(activeId) {
   const all = S.lists();
   const isDark = document.documentElement.dataset.resolved === 'dark';
 
-  bar.replaceChildren(...all.map((l) => {
+  /* „All" steht ganz links, vor allen echten Listen – es ist der Eingang in
+     den Bereich, nicht eine Liste unter vielen. */
+  const gesamt = listStats(S.ALL_LISTS);
+  const allTab = el('button', {
+    class: `list-tab all-tab${activeId === S.ALL_LISTS ? ' active' : ''}`,
+    type: 'button',
+    dataset: { id: S.ALL_LISTS },
+    'aria-label': gesamt.overdue ? `Alle To-dos, ${gesamt.overdue} überfällig` : 'Alle To-dos',
+  }, [
+    el('span', { class: 'list-tab-name', text: 'All' }),
+    gesamt.open ? el('span', { class: `list-tab-badge${gesamt.overdue ? ' overdue' : ''}`, text: String(gesamt.open) }) : null,
+  ].filter(Boolean));
+  allTab.addEventListener('click', () => { haptic(); onSelectList(S.ALL_LISTS); });
+
+  bar.replaceChildren(allTab, ...all.map((l) => {
     const st = listStats(l.id);
     const c = S.colorOf(l.color);
     const tab = el('button', {
@@ -71,6 +85,19 @@ export function openListMenu(activeId, afterChange) {
     build: (body, { close }) => {
       const all = S.lists();
       const active = S.list(activeId);
+      const gesamt = listStats(S.ALL_LISTS);
+
+      body.append(dropupItem({
+        emoji: '🗂',
+        label: 'All',
+        hint: gesamt.open
+          ? `${gesamt.open} offen${gesamt.overdue ? ` · ${gesamt.overdue} überfällig` : ''}`
+          : (gesamt.total ? 'alles erledigt' : 'leer'),
+        overdue: gesamt.overdue > 0,
+        active: activeId === S.ALL_LISTS,
+        onClick: () => { close(); onSelectList(S.ALL_LISTS); },
+      }));
+      if (all.length) body.append(el('div', { class: 'dropup-sep' }));
 
       for (const l of all) {
         const st = listStats(l.id);
@@ -178,7 +205,7 @@ export function openListEditor(id, afterSave) {
             const n = S.todosOf(existing.id).length;
             confirmSheet({
               title: 'Liste löschen?',
-              message: `„${existing.name}" wird entfernt${n ? ` – zusammen mit ${n} ${n === 1 ? 'Aufgabe' : 'Aufgaben'}` : ''}. Das lässt sich nicht rückgängig machen.`,
+              message: `„${existing.name}" wird entfernt${n ? ` – zusammen mit ${n} ${n === 1 ? 'To-do' : 'To-dos'}` : ''}. Das lässt sich nicht rückgängig machen.`,
               onConfirm: () => { S.deleteList(existing.id); toast('Liste gelöscht'); afterSave?.(null); },
             });
           },
@@ -204,7 +231,7 @@ export function openListEditor(id, afterSave) {
 }
 
 /* ==========================================================================
-   Aufgaben einer Liste
+   To-dos einer Liste
    ========================================================================== */
 
 /** Sichtbare Reihenfolge als flache Liste mit Tiefe. Waisen (Elternteil fehlt)
@@ -231,14 +258,15 @@ export function flatten(listId, { includeDone }) {
 
 export function renderTodos(listId) {
   closeSwipe();
-  const l = S.list(listId);
+  const alle = listId === S.ALL_LISTS;
+  const l = alle ? null : S.list(listId);
   const host = $('#todo-list');
   const doneHost = $('#todos-done');
 
-  if (!l) {
+  if (!alle && !l) {
     host.replaceChildren();
     doneHost.replaceChildren();
-    $('#todos-title').textContent = 'Todos';
+    $('#todos-title').textContent = 'To-dos';
     $('#todos-subtitle').textContent = '';
     $('#todos-empty').hidden = false;
     $('#todos-empty-text').textContent = 'Lege über den Pfeil unten rechts deine erste Liste an.';
@@ -249,37 +277,45 @@ export function renderTodos(listId) {
   const showDone = S.settings().doneTodos === 'show';
   const isDark = document.documentElement.dataset.resolved === 'dark';
 
-  $('#todos-title').textContent = `${l.emoji || ''} ${l.name}`.trim();
+  $('#todos-title').textContent = alle ? 'Alle To-dos' : `${l.emoji || ''} ${l.name}`.trim();
 
   const items = flatten(listId, { includeDone: showDone });
-  host.replaceChildren(...items.map((it) => todoRow(it, listId, isDark, { draggable: true })));
+  host.replaceChildren(...items.map((it) => todoRow(it, listId, isDark, { draggable: !alle })));
 
-  // Ziehen erst anhängen, wenn alle Zeilen im Container hängen.
-  for (const wrap of host.children) {
-    attachSortable(wrap, wrap.firstElementChild, {
-      host,
-      scroll: $('#todos-scroll'),
-      nesting: true,
-      maxDepth: MAX_DEPTH,
-      hint: 'Nach rechts ziehen = Unteraufgabe',
-      ignore: '.check',
-      onDrop: (order) => { S.reorderTodos(listId, order); renderTodos(listId); },
-    });
+  /* In „All" wird nicht sortiert und nicht eingerückt. Beides bedeutet etwas
+     innerhalb einer Liste: `order` gilt je Liste, und eine Über-To-do muss in
+     derselben Liste liegen. Über Listengrenzen hinweg gezogen wäre nicht
+     bloß unklar, sondern falsch. */
+  if (!alle) {
+    // Ziehen erst anhängen, wenn alle Zeilen im Container hängen.
+    for (const wrap of host.children) {
+      attachSortable(wrap, wrap.firstElementChild, {
+        host,
+        scroll: $('#todos-scroll'),
+        nesting: true,
+        maxDepth: MAX_DEPTH,
+        hint: 'Nach rechts ziehen = Unter-To-do',
+        ignore: '.check',
+        onDrop: (order) => { S.reorderTodos(listId, order); renderTodos(listId); },
+      });
+    }
   }
 
   renderDoneSection(listId, isDark);
   updateTodoCounters(listId);
   $('#todos-empty').hidden = items.length > 0 || doneHost.children.length > 0;
-  $('#todos-empty-text').textContent = 'Tippe oben rechts auf + für eine neue Aufgabe.';
+  $('#todos-empty-text').textContent = alle
+    ? (S.lists().length ? 'In keiner Liste steht etwas Offenes.' : 'Lege über den Pfeil unten rechts deine erste Liste an.')
+    : 'Tippe oben rechts auf + für ein neues To-do.';
 }
 
 /* ==========================================================================
-   Eine Aufgabenzeile
+   Eine To-doszeile
    Sie wird an genau einer Stelle gebaut (todoRow) und an genau einer Stelle
    mit Inhalt gefüllt (fillRow). Beim Abhaken wird nur nachgefüllt, nicht neu
    gebaut: Die Behandlung für Tippen, Wischen und Ziehen hängt an der Hülle und
    bleibt dadurch bestehen – und die Liste wird nicht angefasst. Vorher baute
-   jeder Haken alle Zeilen neu, was bei 800 Aufgaben knapp eine halbe Sekunde
+   jeder Haken alle Zeilen neu, was bei 800 To-dos knapp eine halbe Sekunde
    kostete und die Zeile mitten im Aufleuchten austauschte.
    ========================================================================== */
 
@@ -311,13 +347,23 @@ function todoRow({ todo: t, depth }, listId, isDark, { draggable }) {
 
 /** Füllt eine Zeile mit dem aktuellen Stand – neu gebaut oder aufgefrischt. */
 function fillRow(row, t, listId, isDark) {
-  const c = t.color ? S.colorOf(t.color) : null;
+  /* In „All" stehen To-dos aus mehreren Listen untereinander. Dann trägt die
+     Zeile die Farbe ihrer Liste und nennt sie in der Meta-Zeile – sonst wäre
+     nicht zu sehen, wo etwas hingehört. */
+  const alle = listId === S.ALL_LISTS;
+  const quelle = alle ? S.list(t.listId) : null;
+  const farbe = t.color || (alle ? quelle?.color : '') || '';
+  const c = farbe ? S.colorOf(farbe) : null;
   const tint = c ? (isDark ? c.dark : c.light) : null;
   const kids = S.childrenOf(t.id);
   const kidsDone = kids.filter((k) => k.done).length;
 
   const meta = [];
+  if (alle && quelle) {
+    meta.push(el('span', { text: `${quelle.emoji || '📋'} ${quelle.name}` }));
+  }
   if (t.due) {
+    if (meta.length) meta.push(el('span', { class: 'dot' }));
     const late = t.done ? 0 : -daysBetween(S.today(), t.due);
     meta.push(late > 0
       ? el('span', { class: 'overdue', text: `⚠ ${late === 1 ? '1 Tag' : `${late} Tage`} überfällig` })
@@ -325,12 +371,12 @@ function fillRow(row, t, listId, isDark) {
   }
   if (kids.length) {
     if (meta.length) meta.push(el('span', { class: 'dot' }));
-    meta.push(el('span', { text: `${kidsDone}/${kids.length} Unteraufgaben` }));
+    meta.push(el('span', { text: `${kidsDone}/${kids.length} Unter-To-dos` }));
   }
   if (t.note && !meta.length) meta.push(el('span', { text: t.note.split('\n')[0] }));
 
-  row.className = `row tappable${t.color ? ' tinted' : ''}${t.done ? ' is-done dimmed' : ''}`;
-  if (t.color) row.setAttribute('style', S.tintStyle(t.color, isDark));
+  row.className = `row tappable${farbe ? ' tinted' : ''}${t.done ? ' is-done dimmed' : ''}`;
+  if (farbe) row.setAttribute('style', S.tintStyle(farbe, isDark));
   else row.removeAttribute('style');
 
   const body = el('div', { class: 'row-body' }, [
@@ -358,7 +404,7 @@ function fillRow(row, t, listId, isDark) {
  * Abhaken, ohne die Liste neu zu bauen.
  *
  * 1. Der Store sagt, wer sich wirklich geändert hat – das sind die Zeile
- *    selbst, ihre Unteraufgaben und alle Überaufgaben, die dadurch voll
+ *    selbst, ihre Unter-To-dos und alle ÜberTo-dos, die dadurch voll
  *    bzw. wieder offen werden.
  * 2. Genau diese Zeilen werden aufgefrischt.
  * 3. Die angetippte leuchtet auf – und zwar diese, nicht ein Nachbau.
@@ -434,7 +480,7 @@ function renderDoneSection(listId, isDark) {
   ]));
 }
 
-/* ---------- Aufgabe anlegen und bearbeiten ---------- */
+/* ---------- To-do anlegen und bearbeiten ---------- */
 
 export function openTodoEditor(listId, id, afterSave) {
   const existing = id ? S.todo(id) : null;
@@ -442,7 +488,7 @@ export function openTodoEditor(listId, id, afterSave) {
   let collect = () => null;
 
   openSheet({
-    title: existing ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
+    title: existing ? 'To-do bearbeiten' : 'Neues To-do',
     confirm: 'Sichern',
     build: (body, { close }) => {
       const title = textInput({ value: t.title, placeholder: 'Was ist zu tun?', maxlength: 120 });
@@ -466,13 +512,13 @@ export function openTodoEditor(listId, id, afterSave) {
         }));
       }
 
-      /* Unteraufgaben: der ausdrückliche Weg neben den Gesten. Beim Bearbeiten
+      /* Unter-To-dos: der ausdrückliche Weg neben den Gesten. Beim Bearbeiten
          wirken Änderungen sofort, beim Neuanlegen werden sie gesammelt und
          nach dem Sichern angelegt. */
       const pending = [];
       const subHost = el('div', { class: 'sub-list' });
       const subInput = el('input', {
-        class: 'input', type: 'text', placeholder: 'Unteraufgabe hinzufügen',
+        class: 'input', type: 'text', placeholder: 'Unter-To-do hinzufügen',
         enterkeyhint: 'done', maxlength: 120,
       });
 
@@ -539,19 +585,19 @@ export function openTodoEditor(listId, id, afterSave) {
         color: field('Farbe', color.node),
         due: field('Fällig am', [due, quickDue]),
         note: field('Notiz', note),
-        subtasks: field('Unteraufgaben', [subHost, subInput],
+        subtasks: field('Unter-To-dos', [subHost, subInput],
           existing ? null : 'Werden nach dem Sichern angelegt.'),
       }));
       body.append(
         existing ? el('button', {
-          type: 'button', class: 'btn danger', text: 'Aufgabe löschen',
+          type: 'button', class: 'btn danger', text: 'To-do löschen',
           onclick: () => {
             close();
             const kids = S.descendantsOf(existing.id).length;
             confirmSheet({
-              title: 'Aufgabe löschen?',
+              title: 'To-do löschen?',
               message: kids
-                ? `„${existing.title}" und ${kids} ${kids === 1 ? 'Unteraufgabe' : 'Unteraufgaben'} werden entfernt.`
+                ? `„${existing.title}" und ${kids} ${kids === 1 ? 'Unter-To-do' : 'Unter-To-dos'} werden entfernt.`
                 : `„${existing.title}" wird entfernt.`,
               onConfirm: () => { S.deleteTodo(existing.id); toast('Gelöscht'); renderTodos(listId); afterSave?.(null); },
             });
@@ -579,14 +625,14 @@ export function openTodoEditor(listId, id, afterSave) {
         saved = S.todo(existing.id);
       } else {
         saved = S.addTodo(listId, fields);
-        // Beim Anlegen gesammelte Unteraufgaben jetzt anhängen
+        // Beim Anlegen gesammelte Unter-To-dos jetzt anhängen
         for (const p of body._pendingSubs || []) {
           S.addTodo(listId, { title: p.title, done: p.done, parent: saved.id });
         }
       }
       haptic(12);
       renderTodos(listId);
-      // Die gesicherte Aufgabe mitgeben – genau wie openHabitEditor. Ohne das
+      // Das gesicherte To-do mitgeben – genau wie openHabitEditor. Ohne das
       // weiß der Aufrufer nicht, was er gerade angelegt hat.
       afterSave?.(saved);
     },

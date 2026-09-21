@@ -1,7 +1,7 @@
 {
   "name": "Planer",
   "short_name": "Planer",
-  "description": "Habits verfolgen und Todos verwalten – alles lokal auf dem Gerät.",
+  "description": "Habits verfolgen und To-dos verwalten – alles lokal auf dem Gerät.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

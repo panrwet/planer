@@ -9,11 +9,12 @@
  * Regeln dazu stehen im Store bei planOn().
  */
 
-import { $, el, haptic, num, formatDue, parseKey, monthStart, monthDays, addMonths,
-         addDays, weekdayOf } from './util.js';
+import { $, el, haptic, num, clamp, formatDue, parseKey, monthStart, monthDays, addMonths,
+         addDays, weekdayOf, weekStart } from './util.js';
 import * as S from './store.js';
 import { openSheet, field, segmented, stepper, switchBtn,
          checkButton, paintCheck, flashRow, toast } from './ui.js';
+import { holdScroll } from './drag.js';
 import { openHabitEditor } from './habits.js';
 import { openTodoEditor } from './todos.js';
 
@@ -116,6 +117,63 @@ export function bindOpenDay(fn) { openDayHook = fn; }
 function openDay(key) { openDayHook(key); }
 
 /* ==========================================================================
+   Wochenstreifen über dem Tagesplan
+   Sieben Tage, der offene hervorgehoben – wie die Leiste über der Tagesansicht
+   im Apple Kalender. Wischen wechselt die Woche.
+   ========================================================================== */
+
+function renderWeekStrip() {
+  const strip = $('#week-strip');
+  const heute = S.today();
+  const start = weekStart(day);
+
+  strip.replaceChildren(...Array.from({ length: 7 }, (_, i) => {
+    const key = addDays(start, i);
+    const d = parseKey(key);
+    const knopf = el('button', {
+      class: `week-day${key === day ? ' selected' : ''}${key === heute ? ' today' : ''}`,
+      type: 'button',
+      dataset: { key },
+      'aria-label': d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }),
+      'aria-current': key === day ? 'date' : null,
+    }, [
+      el('span', { class: 'week-day-name', text: WEEK_LETTERS[i] }),
+      el('span', { class: 'week-day-num', text: String(d.getDate()) }),
+      el('span', { class: `week-day-dot${S.hasPlanOn(key) ? ' on' : ''}` }),
+    ]);
+    knopf.addEventListener('click', () => { haptic(); day = key; renderDayPlan(); });
+    return knopf;
+  }));
+
+  armWeekSwipe(strip);
+}
+
+/* Wischen über dem Streifen blättert Wochen. Die Behandlung hängt nur einmal
+   am Element – der Streifen wird bei jedem Tageswechsel neu gefüllt, und ein
+   zweiter Satz Zuhörer würde jede Geste doppelt zählen. */
+let weekSwipeArmed = null;
+function armWeekSwipe(strip) {
+  if (weekSwipeArmed === strip) return;
+  weekSwipeArmed = strip;
+  let x0 = 0, y0 = 0, aktiv = false;
+
+  strip.addEventListener('pointerdown', (e) => { aktiv = true; x0 = e.clientX; y0 = e.clientY; });
+  strip.addEventListener('pointermove', (e) => {
+    if (!aktiv) return;
+    const dx = e.clientX - x0;
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(e.clientY - y0)) return;
+    aktiv = false;
+    // Die Woche wechselt, der Wochentag bleibt – wie im Apple Kalender.
+    day = addDays(day, dx > 0 ? -7 : 7);
+    haptic(12);
+    renderDayPlan();
+  });
+  const aus = () => { aktiv = false; };
+  strip.addEventListener('pointerup', aus);
+  strip.addEventListener('pointercancel', aus);
+}
+
+/* ==========================================================================
    Tagesplan
    ========================================================================== */
 
@@ -128,6 +186,7 @@ export function renderDayPlan() {
   $('#day-title').textContent = parseKey(day).toLocaleDateString('de-DE',
     { weekday: 'long', day: 'numeric', month: 'long' });
   updateDayHeader();
+  renderWeekStrip();
 
   const rail = el('div', { class: 'day-rail', style: `height:${24 * HOUR_H}px` });
   for (let h = 0; h < 24; h++) {
@@ -142,6 +201,7 @@ export function renderDayPlan() {
 
   const board = el('div', { class: 'day-board' }, [rail, layer]);
   if (day === today) board.append(nowLine());
+  attachEmptyHold(board);
 
   scroll.replaceChildren(board);
   clearInterval(clockTimer);
@@ -251,9 +311,10 @@ function block(e) {
   );
 
   node.addEventListener('click', (ev) => {
-    if (ev.target.closest('.check')) return;
+    if (ev.target.closest('.check') || wasDragged()) return;
     openPlanEditor({ planId: e.plan.id });
   });
+  attachBlockDrag(node, e);
   return node;
 }
 
@@ -329,18 +390,178 @@ export function stepDay(n) {
 }
 
 /* ==========================================================================
+   Gesten im Tagesplan
+   Gedrückt halten und ziehen verschiebt einen Block auf eine andere Uhrzeit –
+   dieselbe Geste wie das Sortieren bei Habits und To-dos, nur wandert hier
+   nicht die Reihenfolge, sondern die Zeit. Gedrückt halten auf freier Fläche
+   legt direkt zu dieser Uhrzeit etwas an.
+
+   Gerastert wird in Viertelstunden. Bei 80 px je Stunde sind fünf Minuten
+   knapp 7 px – das ließe sich mit dem Finger nicht treffen, und der Kalender
+   von Apple rastert aus demselben Grund ebenso.
+   ========================================================================== */
+
+const RASTER = 15;          // Minuten
+const HALTEN = 380;         // ms bis zum Anheben, wie beim Sortieren
+const WACKELN = 8;          // px, ab denen das Halten abbricht
+
+let gezogenBis = 0;         // Zeitpunkt des letzten Ziehens
+
+/** Kam gerade ein Ziehen? Dann ist der folgende Klick sein Nachklapp. */
+function wasDragged() { return Date.now() - gezogenBis < 350; }
+
+/** Minute im Tagesraster unter einem Bildschirmpunkt, auf RASTER gerundet. */
+function minuteAt(clientY) {
+  const layer = $('.day-blocks');
+  if (!layer) return 0;
+  const y = clientY - layer.getBoundingClientRect().top;
+  return clamp(Math.round((y / HOUR_H) * 60 / RASTER) * RASTER, 0, 24 * 60 - RASTER);
+}
+
+/** Verschieben eines Blocks auf eine andere Uhrzeit. */
+function attachBlockDrag(node, e) {
+  let halten = null, bereit = false, x0 = 0, y0 = 0;
+  const abbrechen = () => { clearTimeout(halten); halten = null; bereit = false; };
+
+  node.addEventListener('pointerdown', (ev) => {
+    if (ev.target.closest('.check')) return;
+    if (ev.button !== undefined && ev.button !== 0) return;
+    bereit = true; x0 = ev.clientX; y0 = ev.clientY;
+    halten = setTimeout(() => { if (bereit) beginne(ev.clientY); }, HALTEN);
+  });
+  node.addEventListener('pointermove', (ev) => {
+    if (!bereit) return;
+    if (Math.abs(ev.clientX - x0) > WACKELN || Math.abs(ev.clientY - y0) > WACKELN) abbrechen();
+  });
+  node.addEventListener('pointerup', abbrechen);
+  node.addEventListener('pointercancel', abbrechen);
+  node.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
+  function beginne(startY) {
+    abbrechen();
+    haptic(20);
+    const sc = $('#day-scroll');
+    const freigeben = holdScroll();
+    const dauer = e.plan.minutes;
+    const anfang = e.start;
+    let minute = anfang;
+    let rand = 0;                        // Mitscrollen am Rand
+
+    node.classList.add('moving');
+    document.body.classList.add('is-dragging');
+    const marke = el('div', { class: 'day-drag-time' });
+    document.body.append(marke);
+
+    const zeichne = () => {
+      node.style.top = `${(minute / 60) * HOUR_H}px`;
+      const bis = S.timeOf(minute + dauer);
+      marke.textContent = `${S.timeOf(minute)} – ${bis}`;
+      const meta = node.querySelector('.day-block-meta');
+      if (meta) meta.textContent = e.cols > 1 ? S.timeOf(minute) : `${S.timeOf(minute)}–${bis}`;
+    };
+
+    const bewege = (ev) => {
+      ev.preventDefault();
+      const verschoben = ((ev.clientY - startY) / HOUR_H) * 60;
+      minute = clamp(Math.round((anfang + verschoben) / RASTER) * RASTER, 0, 24 * 60 - dauer);
+      zeichne();
+
+      const r = sc.getBoundingClientRect();
+      const saum = 70;
+      if (ev.clientY < r.top + saum) rand = -Math.ceil((r.top + saum - ev.clientY) / 6);
+      else if (ev.clientY > r.bottom - saum) rand = Math.ceil((ev.clientY - (r.bottom - saum)) / 6);
+      else rand = 0;
+    };
+
+    // Am Rand mitscrollen, damit sich ein Block über den ganzen Tag schieben
+    // lässt und nicht nur über den sichtbaren Ausschnitt.
+    let laeuft = true;
+    const takt = () => {
+      if (!laeuft) return;
+      if (rand) { sc.scrollTop += rand; startY -= rand; zeichne(); }
+      requestAnimationFrame(takt);
+    };
+    requestAnimationFrame(takt);
+
+    const beenden = () => {
+      laeuft = false;
+      window.removeEventListener('pointermove', bewege);
+      window.removeEventListener('pointerup', beenden);
+      window.removeEventListener('pointercancel', beenden);
+      freigeben();
+      marke.remove();
+      node.classList.remove('moving');
+      document.body.classList.remove('is-dragging');
+      gezogenBis = Date.now();
+      haptic(14);
+      if (minute !== anfang) S.updatePlan(e.plan.id, { time: S.timeOf(minute) });
+      renderDayPlan();
+    };
+
+    window.addEventListener('pointermove', bewege, { passive: false });
+    window.addEventListener('pointerup', beenden);
+    window.addEventListener('pointercancel', beenden);
+    zeichne();
+  }
+}
+
+/** Gedrückt halten auf freier Fläche legt zu dieser Uhrzeit etwas an. */
+function attachEmptyHold(board) {
+  let halten = null, bereit = false, x0 = 0, y0 = 0, minute = 0;
+  let schatten = null;
+
+  const abbrechen = () => {
+    clearTimeout(halten); halten = null; bereit = false;
+    schatten?.remove(); schatten = null;
+  };
+
+  board.addEventListener('pointerdown', (ev) => {
+    // Auf einem Block gilt die andere Geste.
+    if (ev.target.closest('.day-block')) return;
+    if (ev.button !== undefined && ev.button !== 0) return;
+    bereit = true; x0 = ev.clientX; y0 = ev.clientY;
+    minute = minuteAt(ev.clientY);
+    halten = setTimeout(() => {
+      if (!bereit) return;
+      abbrechen();
+      haptic(20);
+      openPlanPicker(S.timeOf(minute));
+    }, HALTEN);
+
+    // Sichtbarer Platzhalter, solange gehalten wird – so ist vor dem Öffnen
+    // des Menüs zu sehen, auf welche Uhrzeit es geht.
+    schatten = el('div', {
+      class: 'day-slot-hint',
+      style: `top:${(minute / 60) * HOUR_H}px;height:${(S.defaultMinutes('habit') / 60) * HOUR_H}px`,
+      text: S.timeOf(minute),
+    });
+    $('.day-blocks')?.append(schatten);
+  });
+  board.addEventListener('pointermove', (ev) => {
+    if (!bereit) return;
+    if (Math.abs(ev.clientX - x0) > WACKELN || Math.abs(ev.clientY - y0) > WACKELN) abbrechen();
+  });
+  board.addEventListener('pointerup', abbrechen);
+  board.addEventListener('pointercancel', abbrechen);
+}
+
+/* ==========================================================================
    Einplanen
    ========================================================================== */
 
 /** Auswahl, was eingeplant werden soll – dieselben zwei Bereiche wie die App. */
-export function openPlanPicker() {
+export function openPlanPicker(zeit) {
   let bereich = 'habit';
   let filter = '';
+  let listId = S.ALL_LISTS;      // im Bereich To-dos: welche Liste gezeigt wird
 
   openSheet({
     title: 'Einplanen',
     build: (body, { close }) => {
       const liste = el('div', { class: 'list pick-list' });
+      // Dieselbe Listenleiste wie im To-do-Modul, damit man hier nicht anders
+      // sucht als dort. Sie gilt nur für den Bereich To-dos.
+      const listen = el('div', { class: 'pick-lists' });
       const suche = el('input', {
         class: 'input', type: 'search', placeholder: 'Suchen …',
         autocapitalize: 'off', autocorrect: 'off', enterkeyhint: 'search',
@@ -353,41 +574,74 @@ export function openPlanPicker() {
         // Neu anlegen über denselben Editor wie im jeweiligen Reiter – und
         // direkt danach einplanen, sonst wäre der Weg hier zu Ende.
         if (bereich === 'habit') {
-          openHabitEditor(null, (h) => { if (h) openPlanEditor({ kind: 'habit', refId: h.id }); });
+          openHabitEditor(null, (h) => { if (h) openPlanEditor({ kind: 'habit', refId: h.id, zeit }); });
         } else {
           const listId = S.settings().lastListId || S.lists()[0]?.id;
           if (!listId) { toast('Lege zuerst eine Liste an'); return; }
-          openTodoEditor(listId, null, (t) => { if (t) openPlanEditor({ kind: 'todo', refId: t.id }); });
+          openTodoEditor(listId, null, (t) => { if (t) openPlanEditor({ kind: 'todo', refId: t.id, zeit }); });
         }
       });
 
       const tabs = segmented(
-        [{ id: 'habit', label: 'Habits' }, { id: 'todo', label: 'Aufgaben' }],
+        [{ id: 'habit', label: 'Habits' }, { id: 'todo', label: 'To-dos' }],
         bereich, (v) => { bereich = v; paint(); },
       );
 
-      body.append(tabs, suche, liste, neu);
+      body.append(tabs, listen, suche, liste, neu);
       paint();
 
       function paint() {
-        neu.textContent = bereich === 'habit' ? '+ Neues Habit' : '+ Neue Aufgabe';
-        const treffer = kandidaten(bereich, filter);
+        neu.textContent = bereich === 'habit' ? '+ Neues Habit' : '+ Neues To-do';
+        listen.hidden = bereich !== 'todo';
+        if (bereich === 'todo') paintListen();
+
+        const treffer = kandidaten(bereich, filter, listId);
         liste.replaceChildren(...(treffer.length
-          ? treffer.map(k => pickRow(k, () => { close(); openPlanEditor({ kind: bereich, refId: k.id }); }))
+          ? treffer.map(k => pickRow(k, () => { close(); openPlanEditor({ kind: bereich, refId: k.id, zeit }); }))
           : [el('p', { class: 'field-hint', style: 'padding:14px 2px', text: filter
               ? 'Kein Treffer.'
-              : (bereich === 'habit' ? 'Noch keine Habits.' : 'Noch keine offenen Aufgaben.') })]));
+              : (bereich === 'habit' ? 'Noch keine Habits.' : 'Hier steht nichts Offenes.') })]));
+      }
+
+      function paintListen() {
+        const isDark = document.documentElement.dataset.resolved === 'dark';
+        const mach = (id, label, emoji, color) => {
+          const offen = S.todosOf(id).filter(t => !t.done).length;
+          const c = color ? S.colorOf(color) : null;
+          const knopf = el('button', {
+            class: `list-tab${id === S.ALL_LISTS ? ' all-tab' : ''}${id === listId ? ' active' : ''}`,
+            type: 'button',
+            dataset: { id },
+            style: c ? `--tint:${isDark ? c.dark : c.light}` : null,
+          }, [
+            emoji ? el('span', { class: 'list-tab-emoji', text: emoji }) : null,
+            el('span', { class: 'list-tab-name', text: label }),
+            offen ? el('span', { class: 'list-tab-badge', text: String(offen) }) : null,
+          ].filter(Boolean));
+          knopf.addEventListener('click', () => { listId = id; haptic(); paint(); });
+          return knopf;
+        };
+        listen.replaceChildren(
+          mach(S.ALL_LISTS, 'All', '', ''),
+          ...S.lists().map(l => mach(l.id, l.name, l.emoji || '📋', l.color)),
+        );
       }
     },
   });
 }
 
-/** Was sich einplanen lässt. Die Suche ist dieselbe wie im Such-Bildschirm,
-    also auch hier tolerant gegenüber Tippfehlern. */
-function kandidaten(bereich, filter) {
+/**
+ * Was sich einplanen lässt. Die Suche ist dieselbe wie im Such-Bildschirm,
+ * also auch hier tolerant gegenüber Tippfehlern.
+ * @param {string} [listId] nur im Bereich To-dos: auf diese Liste einschränken
+ */
+function kandidaten(bereich, filter, listId = S.ALL_LISTS) {
+  const inListe = (id) => listId === S.ALL_LISTS || id === listId;
+
   if (filter.length >= 2) {
     return S.search(filter, { settingsEntries: [] })
       .filter(h => h.kind === bereich && !(bereich === 'todo' && h.done))
+      .filter(h => bereich !== 'todo' || inListe(S.todo(h.id)?.listId))
       .map(h => ({ id: h.id, title: h.title, emoji: h.emoji || '', color: h.color, sub: h.subtitle }));
   }
   if (bereich === 'habit') {
@@ -396,7 +650,7 @@ function kandidaten(bereich, filter) {
       sub: `${S.intervalOf(h).label} · ${num(h.target)} ${S.unitWords(h).many}`,
     }));
   }
-  return S.getData().todos.filter(t => !t.done).map(t => ({
+  return S.todosOf(listId).filter(t => !t.done).map(t => ({
     id: t.id, title: t.title, emoji: '', color: t.color || S.list(t.listId)?.color || '',
     sub: S.list(t.listId)?.name || '',
   }));
@@ -422,7 +676,7 @@ function pickRow(k, onPick) {
  * Uhrzeit, Dauer und „dauerhaft" festlegen – beim Anlegen und beim Bearbeiten
  * derselbe Bildschirm, damit beides gleich aussieht.
  */
-export function openPlanEditor({ planId, kind, refId }) {
+export function openPlanEditor({ planId, kind, refId, zeit }) {
   const bestehend = planId ? S.plan(planId) : null;
   const art = bestehend ? bestehend.kind : kind;
   const ziel = art === 'habit' ? S.habit(bestehend?.refId ?? refId) : S.todo(bestehend?.refId ?? refId);
@@ -430,7 +684,7 @@ export function openPlanEditor({ planId, kind, refId }) {
 
   const name = art === 'habit' ? ziel.name : ziel.title;
   const state = {
-    time: bestehend?.time ?? vorschlagszeit(),
+    time: bestehend?.time ?? zeit ?? vorschlagszeit(),
     minutes: bestehend?.minutes ?? S.defaultMinutes(art),
     repeat: bestehend?.repeat ?? false,
   };
@@ -481,7 +735,7 @@ export function openPlanEditor({ planId, kind, refId }) {
           art === 'habit' ? el('div', { class: 'row-emoji', text: ziel.emoji || '•' }) : null,
           el('div', {}, [
             el('div', { class: 'plan-target-name', text: name }),
-            el('div', { class: 'plan-target-kind', text: art === 'habit' ? 'Habit' : 'Aufgabe' }),
+            el('div', { class: 'plan-target-kind', text: art === 'habit' ? 'Habit' : 'To-do' }),
           ]),
         ].filter(Boolean)),
         field('Uhrzeit', [zeit, schnellzeit]),
@@ -505,7 +759,7 @@ function dauerhaftText(art, on) {
   if (!on) return 'Gilt nur an diesem Tag.';
   return art === 'habit'
     ? 'Steht ab diesem Tag an jedem Tag im Plan, an dem das Habit ohnehin dran ist.'
-    : 'Steht ab diesem Tag jeden Tag im Plan, bis die Aufgabe abgehakt ist.';
+    : 'Steht ab diesem Tag jeden Tag im Plan, bis das To-do abgehakt ist.';
 }
 
 /** Vorschlag: die nächste halbe Stunde, damit man selten tippen muss. */

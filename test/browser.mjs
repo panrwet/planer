@@ -49,7 +49,7 @@ const dump = () => page.evaluate(async () => JSON.parse((await import('/js/store
 const overview = () => page.evaluate(async () => (await import('/js/store.js')).overview());
 const shot = (n) => (SHOTS ? page.screenshot({ path: `${SHOTS}/${n}.png` }) : Promise.resolve());
 
-/** Sichtbarer Aufgabenbaum als "A, __B, C" – Einrückung als zwei Unterstriche. */
+/** Sichtbarer To-dosbaum als "A, __B, C" – Einrückung als zwei Unterstriche. */
 const tree = () => page.evaluate(() => [...document.querySelectorAll('#todo-list .todo-wrap')]
   .map(n => `${'__'.repeat(Number(n.dataset.depth))}${n.querySelector('.row-title').textContent}`).join(', '));
 
@@ -175,7 +175,7 @@ await step('Habits nach Rhythmus, Summe passt', async () => {
   if (sum !== o.habits.due) throw new Error(`Summe ${sum} ≠ fällig ${o.habits.due}`);
 });
 
-await step('Aufgaben-Kennzahlen rechnen auf', async () => {
+await step('To-dos-Kennzahlen rechnen auf', async () => {
   const o = await overview();
   const map = {};
   for (const n of await page.locator('.home-stat').allInnerTexts()) {
@@ -232,7 +232,7 @@ group('Editoren');
 
 const FIELDS = {
   habit: ['NAME', 'FARBE', 'WIE OFT', 'WAS WIRD GEZÄHLT?', 'WIE VIELE'],
-  todo: ['NAME', 'FARBE', 'FÄLLIG AM', 'NOTIZ', 'UNTERAUFGABEN'],
+  todo: ['NAME', 'FARBE', 'FÄLLIG AM', 'NOTIZ', 'UNTER-TO-DOS'],
   list: ['NAME', 'FARBE'],
 };
 
@@ -262,14 +262,14 @@ await step('Emoji-Vorschläge folgen dem Namen', async () => {
   if (!scrollable) throw new Error('Zeile nicht wischbar');
 });
 
-await step('Aufgaben-Editor: kein Emoji, dafür Fälligkeit, Notiz, Unteraufgaben', async () => {
+await step('To-dos-Editor: kein Emoji, dafür Fälligkeit, Notiz, Unter-To-dos', async () => {
   await page.locator('.tab[data-goto=todos]').tap();
   await wait(400);
   await page.locator('#todo-add').tap();
   await wait(500);
   const labels = await page.locator('.sheet-body .field-label').allInnerTexts();
   if (JSON.stringify(labels) !== JSON.stringify(FIELDS.todo)) throw new Error(labels.join(' > '));
-  if (await page.locator('.emoji-box').count()) throw new Error('Aufgabe hat ein Emoji-Feld');
+  if (await page.locator('.emoji-box').count()) throw new Error('To-do hat ein Emoji-Feld');
 });
 
 await step('Listen-Editor gleich aufgebaut', async () => {
@@ -283,7 +283,7 @@ await step('Listen-Editor gleich aufgebaut', async () => {
 });
 
 /* ========================================================================== */
-group('Unteraufgaben');
+group('Unter-To-dos');
 
 // Frischer Stand: Die Startseite hakt weiter oben die überfällige "Milch" ab,
 // die dann ausgeblendet ist. Diese Gruppe braucht alle drei Zeilen.
@@ -361,16 +361,16 @@ await step('schließender Tipp löst sonst nichts aus', async () => {
 });
 
 /* Der Stand ist jetzt verbraucht: "Brot" ist abgehakt und zieht als einziges
-   Kind seine Überaufgabe "Milch" mit, die damit ausgeblendet ist – richtig so,
+   Kind seine ÜberTo-do "Milch" mit, die damit ausgeblendet ist – richtig so,
    aber die Editor-Prüfungen brauchen sie wieder. */
 await seed();
 await page.locator('.tab[data-goto=todos]').tap();
 await wait(450);
 
-await step('Unteraufgaben im Editor anlegen, abhaken, entfernen', async () => {
+await step('Unter-To-dos im Editor anlegen, abhaken, entfernen', async () => {
   await page.locator('#todo-list .todo-wrap').filter({ hasText: 'Milch' }).first().locator('.row-body').tap();
   await wait(500);
-  await page.locator('.sheet-body input[placeholder*="Unteraufgabe"]').fill('Sahne');
+  await page.locator('.sheet-body input[placeholder*="Unter-To-do"]').fill('Sahne');
   await page.keyboard.press('Enter');
   await wait(400);
   const row = page.locator('.sub-row').filter({ hasText: 'Sahne' });
@@ -382,14 +382,14 @@ await step('Unteraufgaben im Editor anlegen, abhaken, entfernen', async () => {
   await wait(400);
   if (await page.locator('.sub-row').filter({ hasText: 'Sahne' }).count()) throw new Error('nicht entfernt');
 });
-await shot('03-editor-unteraufgaben');
+await shot('03-editor-unterTo-dos');
 
-await step('beim Neuanlegen gesammelte Unteraufgaben landen am Ziel', async () => {
+await step('beim Neuanlegen gesammelte Unter-To-dos landen am Ziel', async () => {
   await page.locator('#todo-add').tap();
   await wait(500);
   await page.locator('.sheet-body input[type=text]').first().fill('Grillabend');
   for (const s of ['Kohle', 'Salat']) {
-    await page.locator('.sheet-body input[placeholder*="Unteraufgabe"]').fill(s);
+    await page.locator('.sheet-body input[placeholder*="Unter-To-do"]').fill(s);
     await page.keyboard.press('Enter');
     await wait(250);
   }
@@ -402,7 +402,7 @@ await step('beim Neuanlegen gesammelte Unteraufgaben landen am Ziel', async () =
 /* ========================================================================== */
 group('Aufleuchten beim Abhaken');
 
-await step('Aufgabe leuchtet und hört wieder auf', async () => {
+await step('To-do leuchtet und hört wieder auf', async () => {
   const row = page.locator('#todo-list .todo-wrap').filter({ hasText: 'Käse' }).locator('.row').first();
   await row.locator('.check').tap();
   await wait(90);
@@ -463,7 +463,7 @@ group('Gesten mit echten Berührungen');
 /* touch-action wirkt nur hier – mit dem Zeiger blieben diese Fehler unsichtbar. */
 
 /* Wieder frischer Stand, aber mit genug Zeilen: Die erste Prüfung erwartet,
-   dass die Liste überhaupt scrollbar ist – drei Aufgaben passen auf den
+   dass die Liste überhaupt scrollbar ist – drei To-dos passen auf den
    Bildschirm und würden sie stillschweigend grün ausgehen lassen. */
 await seed();
 await page.evaluate(async () => {
@@ -588,7 +588,7 @@ await step('der Fortschrittsring wandert, statt zu springen', async () => {
   if (after === before) throw new Error(`Fortschritt unverändert (${before})`);
 });
 
-await step('abgehakte Aufgabe leuchtet erst, verschwindet dann', async () => {
+await step('abgehakte To-do leuchtet erst, verschwindet dann', async () => {
   await seed();
   await page.locator('.tab[data-goto=todos]').tap();
   await wait(450);
@@ -632,7 +632,7 @@ await step('Zähler in Kopfzeile und Listen-Reiter ziehen mit', async () => {
 /* ========================================================================== */
 group('Zuletzt gelöscht');
 
-await step('gelöschte Aufgabe liegt im Papierkorb und kommt zurück', async () => {
+await step('gelöschte To-do liegt im Papierkorb und kommt zurück', async () => {
   await seed();
   await page.locator('.tab[data-goto=todos]').tap();
   await wait(450);
@@ -756,7 +756,7 @@ await step('vierter Reiter rechts neben der Startseite', async () => {
   const reiter = await page.locator('#tabbar .tab').evaluateAll(
     ns => ns.map(n => [n.dataset.goto, n.textContent.trim()]));
   if (JSON.stringify(reiter) !== JSON.stringify(
-      [['home', 'Start'], ['calendar', 'Kalender'], ['habits', 'Habits'], ['todos', 'Todos']])) {
+      [['home', 'Start'], ['calendar', 'Kalender'], ['habits', 'Habits'], ['todos', 'To-dos']])) {
     throw new Error(JSON.stringify(reiter));
   }
 });
@@ -925,12 +925,12 @@ await step('Auswahl bietet genau die zwei Bereiche', async () => {
   await seedPlan();
   await openPicker();
   const reiter = await page.locator('.sheet-body .segmented button').allInnerTexts();
-  if (JSON.stringify(reiter) !== JSON.stringify(['Habits', 'Aufgaben'])) throw new Error(reiter.join(' '));
+  if (JSON.stringify(reiter) !== JSON.stringify(['Habits', 'To-dos'])) throw new Error(reiter.join(' '));
   if (!await page.locator('.pick-list .row').count()) throw new Error('keine Habits zur Auswahl');
-  await page.locator('.sheet-body .segmented button', { hasText: 'Aufgaben' }).tap();
+  await page.locator('.sheet-body .segmented button', { hasText: 'To-dos' }).tap();
   await wait(320);
-  if (!await page.locator('.pick-list .row').count()) throw new Error('keine Aufgaben zur Auswahl');
-  if (!/Neue Aufgabe/.test(await page.locator('.sheet-body .btn.secondary').innerText())) {
+  if (!await page.locator('.pick-list .row').count()) throw new Error('keine To-dos zur Auswahl');
+  if (!/Neues To-do/.test(await page.locator('.sheet-body .btn.secondary').innerText())) {
     throw new Error('Knopf wechselt nicht mit');
   }
 });
@@ -1039,12 +1039,248 @@ await step('Standarddauer aus den Einstellungen wird übernommen', async () => {
   if (habitDauer !== '15') throw new Error(`Habit: ${habitDauer} statt 15`);
 
   await openPicker();
-  await page.locator('.sheet-body .segmented button', { hasText: 'Aufgaben' }).tap();
+  await page.locator('.sheet-body .segmented button', { hasText: 'To-dos' }).tap();
   await wait(340);
   await page.locator('.pick-list .row').first().tap();
   await wait(520);
   const todoDauer = await page.locator('.sheet-body .stepper input').inputValue();
-  if (todoDauer !== '60') throw new Error(`Aufgabe: ${todoDauer} statt 60`);
+  if (todoDauer !== '60') throw new Error(`To-do: ${todoDauer} statt 60`);
+});
+
+/* ========================================================================== */
+group('Reiter „All"');
+
+await step('All steht ganz links und zeigt alles', async () => {
+  await seed();
+  await page.locator('.tab[data-goto=todos]').tap();
+  await wait(500);
+  const reiter = await page.locator('#list-tabs .list-tab').evaluateAll(
+    ns => ns.map(n => n.querySelector('.list-tab-name').textContent));
+  if (reiter[0] !== 'All') throw new Error(`erster Reiter: ${reiter.join(', ')}`);
+
+  await page.locator('#list-tabs .list-tab').first().tap();
+  await wait(500);
+  if (await page.locator('#todos-title').innerText() !== 'Alle To-dos') {
+    throw new Error(await page.locator('#todos-title').innerText());
+  }
+  const gezeigt = await page.locator('#todo-list .row-title').allInnerTexts();
+  const offen = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return S.getData().todos.filter(t => !t.done).map(t => t.title);
+  });
+  if (gezeigt.length !== offen.length) throw new Error(`${gezeigt.length} gezeigt, ${offen.length} offen`);
+  for (const t of offen) if (!gezeigt.includes(t)) throw new Error(`„${t}" fehlt`);
+});
+
+await step('jede Zeile nennt ihre Liste', async () => {
+  const listen = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return S.lists().map(l => l.name);
+  });
+  const metas = await page.locator('#todo-list .row-meta').allInnerTexts();
+  if (metas.length !== await page.locator('#todo-list .todo-wrap').count()) {
+    throw new Error('nicht jede Zeile hat eine Meta-Zeile');
+  }
+  if (!metas.every(m => listen.some(n => m.includes(n)))) throw new Error(metas.join(' | '));
+});
+
+await step('in All wird nicht sortiert und nicht eingerückt', async () => {
+  const vorher = await tree();
+  // Wischen darf keinen Einrück-Knopf zeigen
+  const b = await page.locator('#todo-list .todo-wrap').nth(1).locator('.row').boundingBox();
+  await page.mouse.move(b.x + 40, b.y + b.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) { await page.mouse.move(b.x + 40 + i * 12, b.y + b.height / 2); await wait(18); }
+  await page.mouse.up();
+  await wait(400);
+  if (await page.locator('.swipe-action').count()) throw new Error('Einrücken angeboten');
+  if (await tree() !== vorher) throw new Error('Baum hat sich verändert');
+});
+
+await step('abhaken funktioniert in All wie überall', async () => {
+  const titel = await page.locator('#todo-list .row-title').first().innerText();
+  await page.locator('#todo-list .todo-wrap').first().locator('.check').tap();
+  await wait(1500);
+  const erledigt = await page.evaluate(async (t) => {
+    const S = await import('/js/store.js');
+    return !!S.getData().todos.find(x => x.title === t)?.done;
+  }, titel);
+  if (!erledigt) throw new Error(`„${titel}" nicht abgehakt`);
+});
+
+await step('neues To-do aus All landet nachvollziehbar in einer Liste', async () => {
+  await page.locator('#todo-add').tap();
+  await wait(500);
+  await page.locator('.sheet-body input[type=text]').first().fill('Aus All angelegt');
+  await page.locator('.sheet-head button.strong').tap();
+  await wait(700);
+  const wo = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const t = S.getData().todos.find(x => x.title === 'Aus All angelegt');
+    return t ? S.list(t.listId)?.name : null;
+  });
+  if (!wo) throw new Error('nicht angelegt');
+  const hinweis = await page.locator('#toast').innerText().catch(() => '');
+  if (!hinweis.includes(wo)) throw new Error(`Hinweis nennt die Liste nicht: „${hinweis}"`);
+});
+
+/* ========================================================================== */
+group('Wochenansicht im Tagesplan');
+
+await step('sieben Tage, der offene hervorgehoben', async () => {
+  await seedPlan();
+  await page.locator('.cal-day.today').tap();
+  await wait(650);
+  const tage = await page.locator('#week-strip .week-day').count();
+  if (tage !== 7) throw new Error(`${tage} Tage`);
+  if (await page.locator('#week-strip .week-day.selected').count() !== 1) throw new Error('Auswahl nicht eindeutig');
+  const namen = await page.locator('#week-strip .week-day-name').allInnerTexts();
+  if (namen.join('').toLowerCase() !== 'modimidofrsaso') throw new Error(namen.join(' '));
+  // Der Streifen zeigt die Woche des offenen Tages
+  const ersterKey = await page.locator('#week-strip .week-day').first().getAttribute('data-key');
+  const wochentag = await page.evaluate(k => new Date(`${k}T12:00:00`).getDay(), ersterKey);
+  if (wochentag !== 1) throw new Error('beginnt nicht an einem Montag');
+});
+
+await step('Punkt nur an Tagen mit Planung', async () => {
+  const gesetzt = await page.locator('#week-strip .week-day').evaluateAll(
+    ns => ns.filter(n => n.querySelector('.week-day-dot.on')).map(n => n.dataset.key));
+  const erwartet = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return [...document.querySelectorAll('#week-strip .week-day')].map(n => n.dataset.key).filter(k => S.hasPlanOn(k));
+  });
+  if (JSON.stringify(gesetzt) !== JSON.stringify(erwartet)) throw new Error(`${gesetzt} statt ${erwartet}`);
+});
+
+await step('Tag im Streifen antippen wechselt den Plan', async () => {
+  const vorher = await page.locator('#day-title').innerText();
+  await page.locator('#week-strip .week-day:not(.selected)').nth(2).tap();
+  await wait(600);
+  if (await page.locator('#day-title').innerText() === vorher) throw new Error('Titel unverändert');
+  if (await page.locator('#week-strip .week-day.selected').count() !== 1) throw new Error('Auswahl verloren');
+});
+
+await step('Wischen über dem Streifen blättert eine Woche', async () => {
+  const key = () => page.locator('#week-strip .week-day.selected').getAttribute('data-key');
+  const vorher = await key();
+  const b = await page.locator('#week-strip').boundingBox();
+  await page.mouse.move(b.x + b.width - 30, b.y + b.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) { await page.mouse.move(b.x + b.width - 30 - i * 14, b.y + b.height / 2); await wait(16); }
+  await page.mouse.up();
+  await wait(650);
+  const nachher = await key();
+  const tage = await page.evaluate(([a, b2]) =>
+    Math.round((new Date(`${b2}T12:00:00`) - new Date(`${a}T12:00:00`)) / 86400000), [vorher, nachher]);
+  if (tage !== 7) throw new Error(`${vorher} → ${nachher} sind ${tage} Tage`);
+});
+
+/* ========================================================================== */
+group('Gesten im Tagesplan');
+
+await step('Block gedrückt halten und ziehen ändert die Uhrzeit', async () => {
+  await seedPlan();
+  await page.locator('.cal-day.today').tap();
+  await wait(700);
+  const vor = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return S.planOn(S.today()).map(e => `${e.title} ${e.plan.time}`);
+  });
+  const b = await page.locator('.day-block').first().boundingBox();
+  await touch('touchStart', b.x + 60, b.y + 18);
+  await wait(600);
+  if (!await page.evaluate(() => !!document.querySelector('.day-block.moving'))) throw new Error('nicht angehoben');
+  if (!await page.locator('.day-drag-time').count()) throw new Error('keine Zeitmarke');
+  for (let i = 1; i <= 10; i++) { await touch('touchMove', b.x + 60, b.y + 18 + i * 16); await wait(16); }
+  const marke = await page.locator('.day-drag-time').innerText();
+  await touch('touchEnd', 0, 0);
+  await wait(600);
+  const nach = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return S.planOn(S.today()).map(e => `${e.title} ${e.plan.time}`);
+  });
+  if (JSON.stringify(vor) === JSON.stringify(nach)) throw new Error(`unverändert: ${vor.join(' · ')}`);
+  if (!marke.startsWith(nach.find(x => x.includes(vor[0].split(' ')[0]))?.split(' ').pop() ?? 'x')) {
+    // Die Marke muss die Zeit zeigen, die danach gespeichert ist.
+    throw new Error(`Marke „${marke}" passt nicht zu ${nach.join(' · ')}`);
+  }
+  if (await page.locator('.sheet-host:not([hidden])').count()) throw new Error('Editor ging nach dem Ziehen auf');
+});
+
+await step('Uhrzeiten rasten in Viertelstunden', async () => {
+  const zeiten = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return S.planOn(S.today()).map(e => e.plan.time);
+  });
+  for (const z of zeiten) {
+    if (Number(z.split(':')[1]) % 15) throw new Error(`${z} liegt nicht im Viertelstundenraster`);
+  }
+});
+
+await step('auf freier Fläche halten legt zu dieser Uhrzeit an', async () => {
+  const stelle = await page.evaluate(() => {
+    const sc = document.querySelector('#day-scroll').getBoundingClientRect();
+    for (let y = sc.top + 50; y < sc.bottom - 50; y += 20) {
+      const n = document.elementFromPoint(sc.left + 200, y);
+      if (n && !n.closest('.day-block') && n.closest('.day-board')) return { x: sc.left + 200, y };
+    }
+    return null;
+  });
+  if (!stelle) throw new Error('keine freie Fläche gefunden');
+
+  await touch('touchStart', stelle.x, stelle.y);
+  await wait(230);
+  const platzhalter = await page.locator('.day-slot-hint').innerText().catch(() => '');
+  if (!/^\d\d:\d\d$/.test(platzhalter)) throw new Error(`Platzhalter: „${platzhalter}"`);
+  await wait(450);
+  await touch('touchEnd', 0, 0);
+  await wait(400);
+
+  // Das Menü muss das Loslassen überleben – es liegt unter dem Finger.
+  if (!await page.locator('.sheet-host:not([hidden])').count()) throw new Error('Auswahl gleich wieder zu');
+  if (await page.locator('.sheet-head h2').innerText() !== 'Einplanen') {
+    throw new Error(await page.locator('.sheet-head h2').innerText());
+  }
+  await page.locator('.pick-list .row').first().tap();
+  await wait(550);
+  const zeit = await page.locator('.sheet-body input[type=time]').inputValue();
+  if (zeit !== platzhalter) throw new Error(`Editor zeigt ${zeit}, gehalten wurde ${platzhalter}`);
+});
+
+/* ========================================================================== */
+group('Listen in der Planungs-Auswahl');
+
+await step('Listenleiste nur im Bereich To-dos', async () => {
+  await seedPlan();
+  await openPicker();
+  if (await page.locator('.pick-lists').isVisible()) throw new Error('steht schon bei den Habits');
+  await page.locator('.sheet-body .segmented button', { hasText: 'To-dos' }).tap();
+  await wait(360);
+  if (!await page.locator('.pick-lists').isVisible()) throw new Error('fehlt bei den To-dos');
+  const reiter = await page.locator('.pick-lists .list-tab-name').allInnerTexts();
+  const listen = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return ['All', ...S.lists().map(l => l.name)];
+  });
+  if (JSON.stringify(reiter) !== JSON.stringify(listen)) throw new Error(reiter.join(', '));
+});
+
+await step('Liste wählen schränkt die Auswahl ein', async () => {
+  await openPicker();
+  await page.locator('.sheet-body .segmented button', { hasText: 'To-dos' }).tap();
+  await wait(360);
+  const alle = await page.locator('.pick-list .row-title').allInnerTexts();
+  const zweite = await page.locator('.pick-lists .list-tab').nth(1).locator('.list-tab-name').innerText();
+  await page.locator('.pick-lists .list-tab').nth(1).tap();
+  await wait(380);
+  const gefiltert = await page.locator('.pick-list .row-title').allInnerTexts();
+  if (gefiltert.length >= alle.length) throw new Error(`${zweite}: ${gefiltert.length} von ${alle.length}`);
+  const erwartet = await page.evaluate(async (name) => {
+    const S = await import('/js/store.js');
+    const l = S.lists().find(x => x.name === name);
+    return S.todosOf(l.id).filter(t => !t.done).map(t => t.title);
+  }, zweite);
+  if (JSON.stringify(gefiltert) !== JSON.stringify(erwartet)) throw new Error(`${gefiltert} statt ${erwartet}`);
 });
 
 /* ========================================================================== */

@@ -216,7 +216,7 @@ test('Erfolgsquote zählt nur fällige Tage', () => {
 });
 
 console.log('\nTodos');
-test('Abhaken zieht Unteraufgaben mit', () => {
+test('Abhaken zieht Unter-To-dos mit', () => {
   S._setData({});
   const l = S.addList({ name: 'Test' });
   const a = S.addTodo(l.id, { title: 'Eltern' });
@@ -227,7 +227,7 @@ test('Abhaken zieht Unteraufgaben mit', () => {
   assert.equal(S.todo(c.id).done, true);
 });
 
-test('letztes erledigtes Kind hakt die Überaufgabe ab', () => {
+test('letztes erledigtes Kind hakt die ÜberTo-do ab', () => {
   S._setData({});
   const l = S.addList({ name: 'Test' });
   const a = S.addTodo(l.id, { title: 'Eltern' });
@@ -239,7 +239,7 @@ test('letztes erledigtes Kind hakt die Überaufgabe ab', () => {
   assert.equal(S.todo(a.id).done, true);
 });
 
-test('ein Kind wieder öffnen öffnet die Überaufgabe', () => {
+test('ein Kind wieder öffnen öffnet die ÜberTo-do', () => {
   S._setData({});
   const l = S.addList({ name: 'Test' });
   const a = S.addTodo(l.id, { title: 'Eltern' });
@@ -380,7 +380,7 @@ test('Gruppen sind offen, nur Erledigt beginnt zu', () => {
 });
 
 console.log('\nMigration auf Schema 3');
-test('leere Listen werden Aufgaben in "Free"', () => {
+test('leere Listen werden To-dos in "Free"', () => {
   S._setData({
     v: 2,
     lists: [{ id: 'a', name: 'Milch kaufen', order: 0 }, { id: 'b', name: 'Zahnarzt', order: 1 }],
@@ -391,7 +391,7 @@ test('leere Listen werden Aufgaben in "Free"', () => {
   assert.deepEqual(S.todosOf(free.id).map(t => t.title), ['Milch kaufen', 'Zahnarzt']);
 });
 
-test('Listen mit Aufgaben bleiben unangetastet', () => {
+test('Listen mit To-dos bleiben unangetastet', () => {
   S._setData({
     v: 2,
     lists: [{ id: 'a', name: 'Leer', order: 0 }, { id: 'b', name: 'Einkaufen', order: 1 }],
@@ -421,7 +421,7 @@ test('Migration läuft nicht erneut über schon migrierte Daten', () => {
   assert.equal(S.todosOf(S.lists()[0].id).length, 1, 'kein zweites Todo entstanden');
 });
 
-test('Aufgaben verlieren ihr Emoji', () => {
+test('To-dos verlieren ihr Emoji', () => {
   S._setData({
     v: 2,
     lists: [{ id: 'b', name: 'Liste', order: 0 }],
@@ -448,7 +448,7 @@ test('die erste Zeile lässt sich nicht einrücken', () => {
   assert.equal(S.indentTodo(a.id), false);
 });
 
-test('Einrücken macht zur Unteraufgabe des Vorgängers', () => {
+test('Einrücken macht zur Unter-To-do des Vorgängers', () => {
   S._setData({});
   const l = S.addList({ name: 'L' });
   const a = S.addTodo(l.id, { title: 'A' });
@@ -484,7 +484,7 @@ test('die Tiefengrenze wird eingehalten', () => {
   assert.equal(S.indentTodo(d.id, 2), false);
 });
 
-test('eine Aufgabe mit Kindern darf nur so tief, dass die Kinder passen', () => {
+test('ein To-do mit Kindern darf nur so tief, dass die Kinder passen', () => {
   S._setData({});
   const l = S.addList({ name: 'L' });
   S.addTodo(l.id, { title: 'A' });
@@ -579,7 +579,7 @@ test('erfülltes Wochenziel schrumpft den Nenner nicht', () => {
   assert.equal(o.habits.done, 1);
 });
 
-test('Aufgaben: gesamt, offen, erledigt, überfällig', () => {
+test('To-dos: gesamt, offen, erledigt, überfällig', () => {
   S._setData({});
   const l = S.addList({ name: 'L' });
   S.addTodo(l.id, { title: 'offen ohne Datum' });
@@ -599,7 +599,7 @@ test('Aufgaben: gesamt, offen, erledigt, überfällig', () => {
   assert.equal(t.open + t.done, t.total, 'offen und erledigt ergeben die Gesamtzahl');
 });
 
-test('erledigte Aufgaben zählen nicht als überfällig', () => {
+test('erledigte To-dos zählen nicht als überfällig', () => {
   S._setData({});
   const l = S.addList({ name: 'L' });
   const t = S.addTodo(l.id, { title: 'alt', due: '2020-01-01' });
@@ -701,7 +701,7 @@ test('Ringschluss stürzt nicht ab', () => {
   assert.doesNotThrow(() => S.overview());
 });
 
-test('Aufgabe als ihr eigener Elternteil', () => {
+test('To-do als ihr eigener Elternteil', () => {
   S._setData({});
   const l = S.addList({ name: 'L' });
   const a = S.addTodo(l.id, { title: 'A' });
@@ -729,7 +729,7 @@ test('Import räumt kaputte Einträge weg statt zu scheitern', () => {
   const habits = S.habits();
   assert.equal(habits.filter(h => h.id === 'h1').length, 1, 'Dublette entfernt');
   assert.ok(habits.every(h => h.id && h.name), 'jedes Habit hat Kennung und Namen');
-  assert.equal(S.todosOf('l1').length, 2, 'Aufgabe ohne Liste verworfen');
+  assert.equal(S.todosOf('l1').length, 2, 'To-do ohne Liste verworfen');
   assert.equal(S.todo('t3').parent, null, 'Selbstverweis aufgelöst');
   assert.equal(S.valueOn('h1', '2026-09-10'), 2, 'gültiger Wert erhalten');
   assert.equal(S.valueOn('h1', '2026-09-11'), 0, 'negativer Wert verworfen');
@@ -869,12 +869,12 @@ test('Suche bleibt schnell genug für Eingabe im Takt', () => {
     S.search(q, { settingsEntries: [] });
   }
   const ms = Date.now() - t0;
-  assert.ok(ms < 900, `fünf Suchen über 2000 Aufgaben dauerten ${ms} ms`);
+  assert.ok(ms < 900, `fünf Suchen über 2000 To-dos dauerten ${ms} ms`);
 });
 
 console.log('\nPlanung');
 
-/** Ein Habit, eine Aufgabe, ein Montag als Bezugstag. */
+/** Ein Habit, ein To-do, ein Montag als Bezugstag. */
 function planSetup() {
   S._setData({});
   const h = S.addHabit({ name: 'Laufen', emoji: '🏃', color: 'green', sched: 'days',
@@ -918,7 +918,7 @@ test('dauerhaftes Habit folgt seinem Rhythmus, nicht jedem Tag', () => {
   assert.equal(woche, 'x·x·x··', 'Mo Mi Fr geplant, Di Do Sa So frei');
 });
 
-test('dauerhafte Aufgabe kommt täglich, bis sie erledigt ist', () => {
+test('dauerhafte To-do kommt täglich, bis sie erledigt ist', () => {
   const { t } = planSetup();
   S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00', repeat: true });
   assert.equal(S.hasPlanOn(d(3)), true);
@@ -982,12 +982,12 @@ test('Eintrag bringt Farbe, Emoji und Zustand mit', () => {
   assert.equal(a.done, true, 'Habit am Ziel gilt als erledigt');
   assert.equal(a.start, 7 * 60);
   assert.equal(a.end, 8 * 60);
-  assert.equal(b.emoji, '', 'Aufgaben haben kein Emoji');
+  assert.equal(b.emoji, '', 'To-dos haben kein Emoji');
   assert.equal(b.color, 'blue', 'ohne eigene Farbe die der Liste');
   assert.equal(b.done, false);
 });
 
-test('Plan weist auf eine vorher fällige Aufgabe hin', () => {
+test('Plan weist auf eine vorher fällige To-do hin', () => {
   const { t } = planSetup();
   S.updateTodo(t.id, { due: d(-3) });
   S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
@@ -1047,7 +1047,7 @@ test('gelöschtes Habit nimmt seine Planung mit und bringt sie zurück', () => {
   assert.deepEqual(titelAm(MON), ['07:00 Laufen']);
 });
 
-test('gelöschte Aufgabe nimmt ihre Planung mit und bringt sie zurück', () => {
+test('gelöschte To-do nimmt ihre Planung mit und bringt sie zurück', () => {
   const { t } = planSetup();
   S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
   S.deleteTodo(t.id);
@@ -1056,7 +1056,7 @@ test('gelöschte Aufgabe nimmt ihre Planung mit und bringt sie zurück', () => {
   assert.deepEqual(titelAm(MON), ['14:00 Steuer sortieren']);
 });
 
-test('gelöschte Liste nimmt die Planung ihrer Aufgaben mit', () => {
+test('gelöschte Liste nimmt die Planung ihrer To-dos mit', () => {
   const { l, t } = planSetup();
   S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
   S.deleteList(l.id);
@@ -1076,7 +1076,7 @@ test('neu vergebene Kennung reißt die Planung nicht ab', () => {
   const r = S.restoreTrash(eintrag.id);
   assert.match(r.note, /Kennung/);
   assert.deepEqual(titelAm(MON), ['14:00 Steuer sortieren'],
-    'der Eintrag zeigt auf die wiederhergestellte Aufgabe, nicht auf den Besetzer');
+    'der Eintrag zeigt auf das wiederhergestellte To-do, nicht auf den Besetzer');
 });
 
 test('Planung ohne ihr Ziel wird beim Laden verworfen', () => {
@@ -1136,7 +1136,7 @@ test('gelöschtes Habit landet im Papierkorb und kommt mit Verlauf zurück', () 
   assert.equal(S.valueOn(back.id, '2026-09-02'), 3);
 });
 
-test('gelöschte Liste kommt mit allen Aufgaben und ihrer Verschachtelung zurück', () => {
+test('gelöschte Liste kommt mit allen To-dos und ihrer Verschachtelung zurück', () => {
   S._setData({});
   const l = S.addList({ name: 'Einkaufen', emoji: '🛒', color: 'green' });
   const a = S.addTodo(l.id, { title: 'Milch' });
@@ -1147,17 +1147,17 @@ test('gelöschte Liste kommt mit allen Aufgaben und ihrer Verschachtelung zurüc
   S.deleteList(l.id);
   assert.equal(S.lists().length, 0);
   assert.equal(S.todosOf(l.id).length, 0);
-  assert.equal(S.trash()[0].detail, '2 Aufgaben');
+  assert.equal(S.trash()[0].detail, '2 To-dos');
 
   S.restoreTrash(S.trash()[0].id);
   assert.equal(S.lists().length, 1);
   const titles = S.todosOf(l.id).map(t => t.title);
   assert.deepEqual(titles.sort(), ['Milch', 'Vollmilch']);
   const back = S.todosOf(l.id).find(t => t.title === 'Vollmilch');
-  assert.equal(S.todo(back.id).parent, a.id, 'bleibt Unteraufgabe');
+  assert.equal(S.todo(back.id).parent, a.id, 'bleibt Unter-To-do');
 });
 
-test('gelöschte Aufgabe nimmt ihre Unteraufgaben mit und zurück', () => {
+test('gelöschte To-do nimmt ihre Unter-To-dos mit und zurück', () => {
   S._setData({});
   const l = S.addList({ name: 'L' });
   const a = S.addTodo(l.id, { title: 'Umzug' });
@@ -1166,7 +1166,7 @@ test('gelöschte Aufgabe nimmt ihre Unteraufgaben mit und zurück', () => {
 
   S.deleteTodo(a.id);
   assert.equal(S.todosOf(l.id).length, 0);
-  assert.equal(S.trash()[0].detail, 'mit 1 Unteraufgabe');
+  assert.equal(S.trash()[0].detail, 'mit 1 Unter-To-do');
 
   S.restoreTrash(S.trash()[0].id);
   assert.equal(S.todosOf(l.id).length, 2);
@@ -1174,7 +1174,7 @@ test('gelöschte Aufgabe nimmt ihre Unteraufgaben mit und zurück', () => {
   assert.equal(S.todo(kid.id).parent, a.id);
 });
 
-test('Aufgabe ohne ihre alte Liste kommt in die erste vorhandene', () => {
+test('To-do ohne ihre alte Liste kommt in die erste vorhandene', () => {
   S._setData({});
   const l = S.addList({ name: 'Alt' });
   const t = S.addTodo(l.id, { title: 'Reste' });
@@ -1190,7 +1190,7 @@ test('Aufgabe ohne ihre alte Liste kommt in die erste vorhandene', () => {
   assert.deepEqual(S.todosOf(neu.id).map(x => x.title), ['Reste']);
 });
 
-test('Aufgabe ohne jede Liste bekommt eine neue', () => {
+test('To-do ohne jede Liste bekommt eine neue', () => {
   S._setData({});
   const l = S.addList({ name: 'Einzige' });
   const t = S.addTodo(l.id, { title: 'Allein' });
@@ -1288,7 +1288,7 @@ test('kaputte Papierkorb-Einträge werden verworfen, gute bleiben', () => {
   assert.deepEqual(S.todosOf('l1').map(t => t.title), ['Gut']);
 });
 
-test('abgehakte Aufgabe meldet, was sich wirklich geändert hat', () => {
+test('abgehakte To-do meldet, was sich wirklich geändert hat', () => {
   S._setData({});
   const l = S.addList({ name: 'L' });
   const a = S.addTodo(l.id, { title: 'Eltern' });
@@ -1301,9 +1301,9 @@ test('abgehakte Aufgabe meldet, was sich wirklich geändert hat', () => {
   assert.equal(S.toggleTodo(a.id).length, 3);
   // Nochmal in dieselbe Richtung ändert nichts
   assert.deepEqual(S.toggleTodo(a.id, true), []);
-  // Ein Kind öffnen öffnet auch die Überaufgabe: zwei Änderungen
+  // Ein Kind öffnen öffnet auch die ÜberTo-do: zwei Änderungen
   assert.deepEqual(S.toggleTodo(b.id).sort(), [a.id, b.id].sort());
-  // Das letzte offene Kind abhaken schließt die Überaufgabe wieder
+  // Das letzte offene Kind abhaken schließt die ÜberTo-do wieder
   assert.deepEqual(S.toggleTodo(b.id).sort(), [a.id, b.id].sort());
 });
 

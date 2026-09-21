@@ -13,8 +13,29 @@ export const INDENT = 26;   // px pro Verschachtelungsebene
 
 let state = null;
 
+/* Der Tagesplan zieht auch, aber anders: dort wandern Blöcke auf Uhrzeiten,
+   statt Zeilen zu sortieren. Zwei Dinge müssen sich beide teilen – sonst
+   stolpert das eine über das andere:
+     · die Auskunft, dass gerade gezogen wird (ein Tipp danach ist kein Klick)
+     · der Riegel gegen das Scrollen, ohne den iOS die senkrechte Bewegung für
+       sich beansprucht und den Zeiger abbricht */
+let fremdesZiehen = false;
+
 /** Läuft gerade ein Ziehvorgang? (Damit ein Tipp danach nicht als Klick zählt.) */
-export function isDragging() { return state !== null; }
+export function isDragging() { return state !== null || fremdesZiehen; }
+
+/**
+ * Sperrt das Scrollen für die Dauer einer eigenen Zieh-Geste.
+ * @returns {() => void} hebt die Sperre wieder auf
+ */
+export function holdScroll() {
+  fremdesZiehen = true;
+  document.addEventListener('touchmove', blockScroll, { passive: false });
+  return () => {
+    fremdesZiehen = false;
+    if (!state) document.removeEventListener('touchmove', blockScroll);
+  };
+}
 
 /**
  * @param {HTMLElement} wrap    Das bewegte Element (trägt data-id und data-depth)
@@ -126,7 +147,7 @@ function begin(wrap, startX, startY, opts) {
 }
 
 function blockScroll(e) {
-  if (state) e.preventDefault();
+  if (isDragging()) e.preventDefault();
 }
 
 function moveGhost(x, y) {
@@ -200,7 +221,7 @@ function onUp(e) {
   window.removeEventListener('pointermove', onMove);
   window.removeEventListener('pointerup', onUp);
   window.removeEventListener('pointercancel', onUp);
-  document.removeEventListener('touchmove', blockScroll);
+  if (!fremdesZiehen) document.removeEventListener('touchmove', blockScroll);
   document.body.classList.remove('is-dragging');
   document.querySelector('.drag-hint')?.remove();
 

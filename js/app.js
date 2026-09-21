@@ -67,8 +67,9 @@ function show(screen, arg) {
   if (screen === 'habits' && arg) S.setGroupOpen(arg, true);
   if (screen === 'todos') {
     // Ohne Angabe die zuletzt offene Liste, sonst die erste vorhandene.
+    // „All" ist keine echte Liste, aber eine gültige Auswahl.
     const wanted = arg || view.listId;
-    view.listId = S.list(wanted) ? wanted : (S.lists()[0]?.id || '');
+    view.listId = (wanted === S.ALL_LISTS || S.list(wanted)) ? wanted : (S.lists()[0]?.id || '');
     if (view.listId) S.setSetting('lastListId', view.listId);
   }
   view.screen = screen;
@@ -81,7 +82,7 @@ function show(screen, arg) {
     if (b.dataset.goto === tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   }
-  // Die Listen-Leiste gehört nur zum Todos-Bereich.
+  // Die Listen-Leiste gehört nur zum To-dos-Bereich.
   $('#listbar').hidden = screen !== 'todos';
 
   /* Zurücksetzen vor dem Zeichnen, nicht danach: Ein Bildschirm, der beim
@@ -175,6 +176,18 @@ $('#list-menu').addEventListener('click', () => {
 });
 
 $('#todo-add').addEventListener('click', () => {
+  /* In „All" gibt es keine Liste, in die etwas gehören würde. Dann landet das
+     neue To-do in der ersten vorhandenen – und der Hinweis sagt, in welcher,
+     damit es nicht still irgendwo auftaucht. */
+  if (view.listId === S.ALL_LISTS) {
+    const ziel = S.lists()[0];
+    if (!ziel) { openListEditor(null, (saved) => show('todos', saved?.id || '')); return; }
+    openTodoEditor(ziel.id, null, (saved) => {
+      renderCurrent();
+      if (saved) toast(`In „${ziel.name}" angelegt`);
+    });
+    return;
+  }
   if (!S.list(view.listId)) {
     openListEditor(null, (saved) => show('todos', saved?.id || ''));
     return;

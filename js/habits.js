@@ -82,7 +82,7 @@ function groupSection(id, label, items, key, dimDone, sortable) {
   return el('div', { class: 'group-section' }, [toggle, list]);
 }
 
-/* Eine Habit-Zeile wird genauso behandelt wie eine Aufgabenzeile: einmal
+/* Eine Habit-Zeile wird genauso behandelt wie eine To-doszeile: einmal
    gebaut, danach nur noch nachgefüllt. Beim Zählen ist das besonders sichtbar –
    der Fortschrittsring wandert von 1/3 auf 2/3, statt zu springen, weil der
    Knopf derselbe bleibt. */

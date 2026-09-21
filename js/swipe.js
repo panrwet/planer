@@ -1,7 +1,7 @@
-/* Wischen nach rechts, um eine Aufgabe ein- oder auszurücken.
+/* Wischen nach rechts, um ein To-do ein- oder auszurücken.
 
    Der Weg, den iOS-Nutzer kennen: Apple Erinnerungen bietet genau das als
-   Hauptweg für Unteraufgaben an, das Ziehen erst als dritten. Ziehen ist
+   Hauptweg für Unter-To-dos an, das Ziehen erst als dritten. Ziehen ist
    position­sempfindlich und verschiebt leicht versehentlich die Reihenfolge –
    eine Wischgeste betrifft immer nur die eine Zeile.
 
@@ -96,7 +96,7 @@ export function attachSwipe(wrap, row, opts) {
     const b = ensureButton();
     b.className = `swipe-action ${action}`;
     b.textContent = action === 'outdent' ? '⤶ Ausrücken' : '⤷ Einrücken';
-    b.setAttribute('aria-label', action === 'outdent' ? 'Ausrücken' : 'Zur Unteraufgabe machen');
+    b.setAttribute('aria-label', action === 'outdent' ? 'Ausrücken' : 'Zur Unter-To-do machen');
   };
 
   const fire = () => {

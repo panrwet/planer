@@ -20,11 +20,11 @@ export function bindSettingsNavigate(fn) { go = fn; }
 export const SETTINGS_INDEX = [
   { id: 'doneHabits', group: 'Habits', title: 'Abgehakte Habits',
     keywords: 'ausblenden ausgrauen verschwinden erledigt sichtbar' },
-  { id: 'doneTodos', group: 'Todos', title: 'Erledigte Aufgaben',
+  { id: 'doneTodos', group: 'To-dos', title: 'Erledigte To-dos',
     keywords: 'ausblenden anzeigen durchgestrichen erledigt' },
   { id: 'planMinutesHabit', group: 'Planung', title: 'Standarddauer für Habits',
     keywords: 'kalender einplanen dauer minuten block termin länge' },
-  { id: 'planMinutesTodo', group: 'Planung', title: 'Standarddauer für Aufgaben',
+  { id: 'planMinutesTodo', group: 'Planung', title: 'Standarddauer für To-dos',
     keywords: 'kalender einplanen dauer minuten block termin länge todo' },
   { id: 'rowSize', group: 'Darstellung', title: 'Größe der Zeilen',
     keywords: 'klein mittel groß höhe kompakt schrift' },
@@ -74,10 +74,10 @@ export function renderSettings() {
       }),
     ]),
 
-    group('Todos', [
+    group('To-dos', [
       settingRow({
         id: 'doneTodos',
-        title: 'Erledigte Aufgaben',
+        title: 'Erledigte To-dos',
         desc: set.doneTodos === 'hide'
           ? 'Verschwinden aus der Liste und stehen unter „Erledigt“.'
           : 'Bleiben an ihrem Platz, grau und durchgestrichen.',
@@ -100,8 +100,8 @@ export function renderSettings() {
       }),
       settingRow({
         id: 'planMinutesTodo',
-        title: 'Standarddauer für Aufgaben',
-        desc: 'Gilt, wenn du eine Aufgabe in den Kalender einplanst. Je Eintrag änderbar.',
+        title: 'Standarddauer für To-dos',
+        desc: 'Gilt, wenn du ein To-do in den Kalender einplanst. Je Eintrag änderbar.',
         control: segmented(
           [15, 30, 45, 60].map(m => ({ id: String(m), label: `${m}` })),
           String(set.planMinutesTodo), v => put('planMinutesTodo', Number(v)),
@@ -113,7 +113,7 @@ export function renderSettings() {
       settingRow({
         id: 'rowSize',
         title: 'Größe der Zeilen',
-        desc: 'Gilt für Habits und Todos.',
+        desc: 'Gilt für Habits und To-dos.',
         control: segmented(
           [{ id: 'small', label: 'Klein' }, { id: 'medium', label: 'Mittel' }, { id: 'large', label: 'Groß' }],
           set.rowSize, v => put('rowSize', v),
@@ -190,12 +190,12 @@ export function renderSettings() {
       settingRow({
         id: 'reset',
         title: 'Alle Daten löschen',
-        desc: 'Entfernt Habits, Listen, Aufgaben und den gesamten Verlauf.',
+        desc: 'Entfernt Habits, Listen, To-dos und den gesamten Verlauf.',
         danger: true,
         control: chevron(),
         onClick: () => confirmSheet({
           title: 'Wirklich alles löschen?',
-          message: 'Alle Habits, Listen, Aufgaben und der komplette Verlauf werden gelöscht. Sichere vorher, falls du die Daten noch brauchst.',
+          message: 'Alle Habits, Listen, To-dos und der komplette Verlauf werden gelöscht. Sichere vorher, falls du die Daten noch brauchst.',
           confirmLabel: 'Alles löschen',
           onConfirm: () => { S.resetAll(); applyAll(); toast('Alle Daten gelöscht'); },
         }),
@@ -220,7 +220,7 @@ function storageInfo() {
       el('strong', { text: 'Planer' }), ' · ',
       `${d.habits.length} ${d.habits.length === 1 ? 'Habit' : 'Habits'}, `,
       `${d.lists.length} ${d.lists.length === 1 ? 'Liste' : 'Listen'}, `,
-      `${d.todos.length} ${d.todos.length === 1 ? 'Aufgabe' : 'Aufgaben'}, `,
+      `${d.todos.length} ${d.todos.length === 1 ? 'To-do' : 'To-dos'}, `,
       `${days.size} erfasste Tage.`,
     ]),
     el('p', { style: 'margin-top:8px' }, [
@@ -346,8 +346,8 @@ function importData() {
    löscht, soll wissen, was weg ist.
    ========================================================================== */
 
-const KIND_LABEL = { habit: 'Habit', list: 'Liste', todo: 'Aufgabe' };
-/* Habits und Listen bringen ihr eigenes Emoji mit. Aufgaben haben keins – für
+const KIND_LABEL = { habit: 'Habit', list: 'Liste', todo: 'To-do' };
+/* Habits und Listen bringen ihr eigenes Emoji mit. To-dos haben keins – für
    sie steht hier ein neutrales Zeichen, damit alle Zeilen gleich breit bleiben. */
 const KIND_ICON = { habit: '✓', list: '📋', todo: '📝' };
 

@@ -1,6 +1,6 @@
 # Planer
 
-Habits verfolgen und Todos verwalten – eine kleine App für genau ein iPhone.
+Habits verfolgen und To-dos verwalten – eine kleine App für genau ein iPhone.
 Alle Daten bleiben auf dem Gerät.
 
 ## Auf dem iPhone installieren
@@ -36,11 +36,11 @@ oder Dateien ablegen lässt und über **Daten wiederherstellen** zurückkommt.
   bestimmten Tagen, pro Woche und pro Monat gibt und wie viele davon in der
   laufenden Periode schon erfüllt sind. Ein Rhythmus, der heute nicht dran ist,
   steht als „frei"; Antippen öffnet die Gruppe im Habits-Reiter
-- Aufgaben: zuerst der Bestand (insgesamt, offen, erledigt, überfällig – letztes
+- To-dos: zuerst der Bestand (insgesamt, offen, erledigt, überfällig – letztes
   in Warnfarbe), darunter nach Fälligkeit aufgeteilt in überfällig, heute,
   morgen und diese Woche – innerhalb eines Korbs nach Datum sortiert, bei
   „Überfällig" also das Älteste zuerst. Jede Zeile öffnet die betroffenen
-  Aufgaben, direkt abhakbar. Die Fußzeile nennt Aufgaben ohne Datum, spätere und die Listenzahl
+  To-dos, direkt abhakbar. Die Fußzeile nennt To-dos ohne Datum, spätere und die Listenzahl
 - Laufende Serien der längsten drei Habits
 - Kacheln für Suche und Einstellungen
 
@@ -50,7 +50,7 @@ schrumpfte der Nenner, sobald ein Wochenziel erfüllt ist, und aus „1 von 3"
 würde „0 von 2".
 
 **Suche**
-- Ein Feld über alles: Habits, Aufgaben samt Notizen, Listen und Einstellungen
+- Ein Feld über alles: Habits, To-dos samt Notizen, Listen und Einstellungen
 - **Verträgt Tippfehler**: „Vitmine" findet „Vitamine", „Krafttraning" findet
   „Krafttraining". Gerechnet wird der Editierabstand bis zum besten
   Wortanfang – ohne das fände „Vitmin" nichts, weil die fehlenden Buchstaben
@@ -73,15 +73,27 @@ würde „0 von 2".
   Uhr, Einträge als Blöcke in ihrer Farbe, Höhe nach Dauer, Überlappungen
   nebeneinander, am heutigen Tag eine Linie für die aktuelle Uhrzeit. Der Plan
   springt beim Öffnen zur ersten Uhrzeit, sonst zur laufenden Stunde
+- Darüber ein **Wochenstreifen** wie in der Tagesansicht des Apple Kalenders:
+  sieben Tage mit Kürzel und Datum, der offene im gefüllten Kreis, heute in der
+  Akzentfarbe, ein Punkt an Tagen mit Planung. Antippen wechselt den Tag,
+  Wischen blättert eine Woche – der Wochentag bleibt dabei stehen
+- **Gesten** wie beim Sortieren in den Listen: einen Block gedrückt halten und
+  ziehen verschiebt ihn auf eine andere Uhrzeit, mit einer großen Zeitanzeige
+  über dem Plan und Mitscrollen am Rand. Gedrückt halten auf freier Fläche
+  legt direkt zu dieser Uhrzeit etwas an; ein gestrichelter Platzhalter zeigt
+  vorher, welche Uhrzeit es wird. Gerastert wird in Viertelstunden – bei 80 px
+  je Stunde sind fünf Minuten knapp 7 px und mit dem Finger nicht zu treffen
 - Im Plan wird direkt abgehakt – mit demselben Knopf und derselben Wirkung wie
   in den Listen: Tippen zählt hoch, Gedrückthalten zählt zurück
 - **Einplanen** über das + oben rechts: dieselben zwei Bereiche wie die App,
-  Habits und Aufgaben, mit derselben tippfehlertoleranten Suche. Vorhandenes
-  auswählen oder gleich neu anlegen – dafür öffnet derselbe Editor wie im
-  jeweiligen Reiter, und danach geht es direkt ins Einplanen
+  Habits und To-dos, mit derselben tippfehlertoleranten Suche. Im Bereich
+  To-dos steht dieselbe Listenleiste wie im To-dos-Modul, inklusive All –
+  gesucht wird hier also nicht anders als dort. Vorhandenes auswählen oder
+  gleich neu anlegen – dafür öffnet derselbe Editor wie im jeweiligen Reiter,
+  und danach geht es direkt ins Einplanen
 - Ein Eintrag hat Uhrzeit, Dauer und die Möglichkeit, **dauerhaft** zu gelten:
   ein Habit steht dann an jedem Tag im Plan, an dem es ohnehin dran ist (sein
-  Rhythmus), eine Aufgabe täglich, bis sie abgehakt ist. Einzelne Tage lassen
+  Rhythmus), ein To-do täglich, bis es abgehakt ist. Einzelne Tage lassen
   sich aus einer Reihe nehmen, ohne sie ganz zu löschen
 - Von allein erscheint nichts. Ein Eintrag entsteht nur durch Auswahl
 
@@ -104,32 +116,38 @@ würde „0 von 2".
 - Details: aktuelle Serie, längste Serie, Erfolgsquote, Kalender über 26 Wochen,
   Balken der letzten 30 Tage; vergangene Tage lassen sich nachtragen
 
-**Todos**
-- Der Todos-Reiter führt direkt in die zuletzt geöffnete Liste
+**To-dos**
+- Ganz links in der Listenleiste steht **All** – alle To-dos über alle Listen
+  hinweg, jede Zeile in der Farbe ihrer Liste und mit deren Namen in der
+  Meta-Zeile. Sortieren und Einrücken sind dort abgeschaltet: `order` gilt je
+  Liste, und eine Über-To-do muss in derselben Liste liegen; über Listengrenzen
+  gezogen wäre nicht bloß unklar, sondern falsch. Ein neues To-do aus All
+  landet in der ersten Liste, und der Hinweis sagt, in welcher
+- Der To-dos-Reiter führt direkt in die zuletzt geöffnete Liste
 - Über der Tab-Leiste steht je Liste ein Reiter mit Emoji, Name und der Zahl
-  offener Aufgaben; bei vielen Listen ist die Leiste seitlich scrollbar
+  offener To-dos; bei vielen Listen ist die Leiste seitlich scrollbar
 - Der Pfeil rechts in der Leiste öffnet ein Drop-up: alle Listen mit ihrem
   Stand, neue Liste anlegen, aktuelle Liste bearbeiten oder löschen, Listen
   sortieren
-- Aufgaben mit Name, Farbe, Notiz und optionalem Fälligkeitsdatum. Abhaken
+- To-dos mit Name, Farbe, Notiz und optionalem Fälligkeitsdatum. Abhaken
   sitzt rechts
 - **Einplanen ändert die Fälligkeit nicht.** „Fällig Freitag, eingeplant
   Dienstag 14 Uhr" ist der Normalfall: Wann du etwas tust, ist nicht, wann es
-  fertig sein muss. Steht eine eingeplante Aufgabe im Plan, deren Fälligkeit
+  fertig sein muss. Steht ein eingeplantes To-do im Plan, dessen Fälligkeit
   schon vorbei ist, sagt der Block es in Warnfarbe
 - Überfälliges ist an drei Stellen sichtbar: „3 Tage überfällig" in der Zeile,
   ein Zähler in der Kopfzeile und ein roter Zähler am Listen-Reiter. Die
   Sortierung bleibt davon unberührt
-- Unteraufgaben auf drei Wegen, vom schnellsten zum ausdrücklichsten:
+- Unter-To-dos auf drei Wegen, vom schnellsten zum ausdrücklichsten:
   1. **Wischen** – Zeile nach rechts wischen. Kurz wischen legt einen Knopf
      frei (*Einrücken* bzw. *Ausrücken*), weit wischen löst sofort aus. Steht
      ein Knopf offen, schließt der nächste Tipp irgendwo anders nur ihn und
      löst sonst nichts aus
   2. **Ziehen** – gedrückt halten, verschieben; nach rechts einrücken
-  3. **Im Editor** – „Unteraufgabe hinzufügen": anlegen, abhaken, entfernen.
+  3. **Im Editor** – „Unter-To-do hinzufügen": anlegen, abhaken, entfernen.
      Beim Neuanlegen werden sie gesammelt und nach dem Sichern mit angelegt
-- Eine Aufgabe abhaken hakt ihre Unteraufgaben mit ab; sind alle Unteraufgaben
-  erledigt, gilt auch die Überaufgabe als erledigt
+- Ein To-do abhaken hakt ihre Unter-To-dos mit ab; sind alle Unter-To-dos
+  erledigt, gilt auch die ÜberTo-do als erledigt
 - Beim Abhaken leuchtet die Zeile kurz in ihrer Farbe auf – in der Liste, auf
   der Startseite und in der Habit-Detailansicht gleichermaßen. Ein Habit
   leuchtet erst, wenn das Ziel erreicht ist, nicht bei jedem Zwischenschritt
@@ -138,7 +156,7 @@ würde „0 von 2".
 - Überall dieselbe Feldreihenfolge: Name, Emoji, Farbe, Fälligkeit, Notiz, wie
   oft, was gezählt wird, wie viele – jeder Editor zeigt nur, was es bei ihm
   gibt. Die Reihenfolge steht als `FIELD_ORDER` an einer Stelle in `js/ui.js`.
-  Habits haben alles außer Fälligkeit und Notiz, Aufgaben kein Emoji und keinen
+  Habits haben alles außer Fälligkeit und Notiz, To-dos kein Emoji und keinen
   Zeitplan, Listen nur Name, Emoji und Farbe
 - Das Emoji-Kästchen sitzt links neben dem Namensfeld – eine Zeile statt zwei.
   Darunter zwei wischbare Zeilen: Vorschläge zum eingegebenen Namen und die
@@ -157,23 +175,23 @@ würde „0 von 2".
   ein reiner Farbwechsel und die einzige sichtbare Rückmeldung beim Abhaken
 
 **Zuletzt gelöscht**
-- Löschen ist umkehrbar: Habits, Listen und Aufgaben wandern in einen
+- Löschen ist umkehrbar: Habits, Listen und To-dos wandern in einen
   Papierkorb und bleiben dort 30 Tage, dann räumt die App von selbst auf
 - Ein Eintrag hält alles beisammen, was zum Wiederherstellen nötig ist – bei
-  einer Liste ihre Aufgaben samt Verschachtelung, bei einem Habit sein
+  einer Liste ihre To-dos samt Verschachtelung, bei einem Habit sein
   gesamter Verlauf
 - Zwischenzeitlich kann sich die Welt verändert haben. Fehlt die ursprüngliche
-  Liste, landet die Aufgabe in der ersten vorhandenen; gibt es gar keine mehr,
+  Liste, landet das To-do in der ersten vorhandenen; gibt es gar keine mehr,
   wird „Wiederhergestellt" angelegt; ist eine Kennung inzwischen vergeben,
   bekommt der Eintrag eine neue. Die Meldung sagt jedes Mal, was angepasst
   wurde, statt still etwas anderes zu tun
 - Erreichbar über **Einstellungen → Zuletzt gelöscht**, mit Zähler
 
 **Einstellungen**
-- Standarddauer beim Einplanen, getrennt für Habits und Aufgaben (Vorgabe
+- Standarddauer beim Einplanen, getrennt für Habits und To-dos (Vorgabe
   30 Minuten, je Eintrag änderbar)
 - Abgehakte Habits ausblenden oder ausgrauen
-- Erledigte Aufgaben ausblenden oder anzeigen
+- Erledigte To-dos ausblenden oder anzeigen
 - Zeilenhöhe klein / mittel / groß
 - **Farbstärke** aus / dezent / normal / kräftig – wie kräftig die eigene Farbe
   ihr Objekt tönt und rahmt. Bei „Aus" bleiben die Zeilen neutral und Emoji,
@@ -183,6 +201,16 @@ würde „0 von 2".
 - Design hell / dunkel / System
 - Tageswechsel wahlweise erst um 3 Uhr nachts
 - Zuletzt gelöscht, Sichern, Wiederherstellen, alles löschen
+
+## Benennung
+
+Das Ding heißt **To-do**, überall und in jeder Form: „To-do", „To-dos",
+„Unter-To-do", „Neues To-do". Nicht „Aufgabe", nicht „Todo", nicht „Task".
+Im Deutschen ist es Neutrum – *das* To-do, *ein* To-do, *dieses* To-do.
+
+Das gilt für alles Sichtbare. Bezeichner im Code bleiben, wie sie sind
+(`renderTodos`, `#todo-list`, `kind: 'todo'`) – sie werden nicht gelesen,
+und sie umzubenennen hätte nur Risiko ohne Nutzen gebracht.
 
 ## Aufbau
 
@@ -199,7 +227,7 @@ js/store.js             Datenmodell, Speicherung, Streak-Berechnung
 js/ui.js                Sheets, Formularfelder, Abhak-Button
 js/habits.js            Habits-Liste und Editor
 js/habitDetail.js       Statistiken, Kalender, Balken
-js/todos.js             Listen, Reiterleiste, Drop-up, Aufgaben
+js/todos.js             Listen, Reiterleiste, Drop-up, To-dos
 js/drag.js              Umsortieren per Finger, mit und ohne Einrücken
 js/swipe.js             Wischen nach rechts zum Ein- und Ausrücken
 js/home.js              Startseite mit dem Überblick
@@ -225,7 +253,7 @@ bei der Suche nachrangig.
 CLDR beschreibt, was ein Emoji darstellt – nicht, wofür man es verwendet.
 „Vitamine" steht bei keinem Emoji, „Krafttraining" auch nicht. Deshalb liegt in
 `tools/build-emoji.mjs` eine Alltagsschicht: rund 80 Emojis mit den Wörtern, die
-man bei Habits und Aufgaben wirklich eintippt. Dieselbe Liste bestimmt auch,
+man bei Habits und To-dos wirklich eintippt. Dieselbe Liste bestimmt auch,
 welche Emojis bei mehreren Treffern vorn stehen und was ohne Eingabe
 vorgeschlagen wird.
 
@@ -248,7 +276,7 @@ Der gespeicherte Stand trägt eine Schema-Nummer (`v`). Beim Laden wird ein
 sonst läuft die Migration bei jedem Start erneut und vergibt jedes Mal neue
 Kennungen. Bisher:
 
-- `toSchema3` – Listen ohne Aufgaben werden Aufgaben der Liste „Free", weil
+- `toSchema3` – Listen ohne To-dos werden To-dos der Liste „Free", weil
   Listen als Ordner gedacht sind. Listen mit Inhalt bleiben unangetastet.
 - `toSchema4` – ein Ziel pro Intervall statt Tagesziel *und* Tage-pro-Woche.
   „20 Seiten an 3 Tagen pro Woche" wird „60 Seiten pro Woche"; die erfassten
@@ -257,7 +285,7 @@ Kennungen. Bisher:
   Die Stufe existiert trotzdem, damit ein älterer Stand einmal durch die
   Bereinigung läuft und danach die neue Nummer trägt.
 - `toSchema6` – ebenso für die Planung (`plans`). Bestehende Habits und
-  Aufgaben bleiben unangetastet; geplant ist zunächst nichts.
+  To-dos bleiben unangetastet; geplant ist zunächst nichts.
 
 Wer eine Migration ergänzt, zählt `SCHEMA` hoch und hängt einen Schritt an. Die
 Tests prüfen die ganze Kette von einem Stand ohne Versionsnummer bis heute,
@@ -277,7 +305,7 @@ schreiben. Ändert eine andere Instanz etwas, übernimmt die App den neuen Stand
 ## Planung
 
 Ein Plan-Eintrag legt fest, **wann etwas getan werden soll** – nicht, wann es
-fertig sein muss. Er verweist auf ein Habit oder eine Aufgabe und hat Datum,
+fertig sein muss. Er verweist auf ein Habit oder ein To-do und hat Datum,
 Uhrzeit, Dauer und ein `repeat`-Kennzeichen:
 
 ```
@@ -286,23 +314,29 @@ Uhrzeit, Dauer und ein `repeat`-Kennzeichen:
 
 Ohne `repeat` gilt er an genau einem Tag. Mit `repeat` beginnt er am Tag des
 Eintrags und wiederholt sich – ein Habit an jedem Tag, an dem es nach seinem
-eigenen Rhythmus dran ist, eine Aufgabe täglich, bis sie abgehakt ist. Die
+eigenen Rhythmus dran ist, ein To-do täglich, bis es abgehakt ist. Die
 Regeln stehen an einer Stelle in `planAppliesOn()`; `planOn(tag)` löst sie auf
 und gibt die Einträge samt Ziel, Farbe, Zustand und Fälligkeitshinweis zurück,
 damit die Ansicht nichts nachschlagen muss.
+
+Verschoben wird ein Eintrag per Geste: gedrückt halten und ziehen setzt eine
+neue Uhrzeit. Das teilt sich mit dem Sortieren in den Listen die beiden Dinge,
+die dort teuer erkauft waren – die Auskunft `isDragging()`, damit der Tipp
+danach kein Klick ist, und `holdScroll()`, ohne das iOS die senkrechte
+Bewegung für sich beansprucht und den Zeiger abbricht.
 
 `skip` nimmt einzelne Tage aus einer Reihe. Trifft es den ersten Tag, wird
 stattdessen der Anfang nach vorn geschoben – sonst würde die Ausnahmeliste bei
 täglicher Nutzung immer weiter wachsen.
 
-Löschen greift durch: Ein gelöschtes Habit, eine gelöschte Aufgabe oder Liste
+Löschen greift durch: Ein gelöschtes Habit, ein gelöschtes To-do oder eine Liste
 nimmt ihre Plan-Einträge mit in den Papierkorb und bringt sie beim
 Wiederherstellen zurück. Muss dabei eine Kennung neu vergeben werden, ziehen
 die Einträge mit um (`putPlansBack`) – ohne das zeigten sie ins Leere.
 
 ## Die Zeile
 
-Habits und Aufgaben teilen sich denselben Zeilenaufbau, und für beide gilt
+Habits und To-dos teilen sich denselben Zeilenaufbau, und für beide gilt
 dieselbe Regel: **Eine Zeile wird einmal gebaut und danach nur noch
 nachgefüllt.** Gebaut wird in `todoRow()` bzw. `habitRow()`, gefüllt in
 `fillRow()` bzw. `fillHabitRow()`. Abhaken ruft nur das Füllen auf.
@@ -310,10 +344,10 @@ nachgefüllt.** Gebaut wird in `todoRow()` bzw. `habitRow()`, gefüllt in
 Das hat drei Gründe, und alle drei waren vorher sichtbar kaputt:
 
 1. **Geschwindigkeit.** Früher baute jeder Haken die ganze Liste neu. Bei 300
-   Aufgaben dauerte ein Haken bis zum fertigen Bild 195 ms, bei 800 über
+   To-dos dauerte ein Haken bis zum fertigen Bild 195 ms, bei 800 über
    400 ms. Jetzt sind es 34 bzw. 40 ms – praktisch unabhängig davon, wie lang
    die Liste ist. Welche Zeilen überhaupt betroffen sind, sagt `toggleTodo()`
-   zurück: die Aufgabe selbst, ihre Unteraufgaben und jede Überaufgabe, die
+   zurück: das To-do selbst, seine Unter-To-dos und jede ÜberTo-do, die
    dadurch voll oder wieder offen wird.
 2. **Der Fortschrittsring.** Ein `transition` läuft nur auf einem Element, das
    schon da war. Solange der Abhak-Knopf ausgetauscht wurde, sprang der Ring
@@ -347,7 +381,7 @@ node test/browser.mjs           # Bedienung im iPhone-Format
 ```
 
 `test/browser.mjs` startet einen eigenen Dateiserver und fährt die App im
-iPhone-14-Format durch: Startseite, Suche, Editoren, Unteraufgaben, Aufleuchten,
+iPhone-14-Format durch: Startseite, Suche, Editoren, Unter-To-dos, Aufleuchten,
 Gesten, Datenerhalt und Layout. Zwei Arten von Eingaben – mit dem Zeiger
 (schnell, deckt die Logik ab) und mit **echten Berührungen** über das
 Debug-Protokoll. Das zweite ist unverzichtbar: `touch-action` wirkt nur bei

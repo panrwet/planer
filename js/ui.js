@@ -65,7 +65,14 @@ export function openSheet({ title, confirm, cancel = 'Abbrechen', build, onConfi
 
   closeCurrent = close;
   document.addEventListener('keydown', onKey);
-  scrim.addEventListener('click', close);
+  /* Der Rahmen schließt nur, wenn die Geste auch auf ihm begonnen hat. Wird
+     ein Sheet durch Gedrückthalten geöffnet – im Tagesplan legt das zu einer
+     Uhrzeit etwas an –, erscheint der Rahmen unter dem noch liegenden Finger.
+     Der Klick beim Loslassen endet dann auf ihm und hätte das Sheet sofort
+     wieder zugemacht. */
+  let abRahmen = false;
+  scrim.addEventListener('pointerdown', () => { abRahmen = true; });
+  scrim.addEventListener('click', () => { if (abRahmen) close(); });
   cancelBtn.addEventListener('click', close);
   confirmBtn.addEventListener?.('click', () => { if (onConfirm?.(body) !== false) close(); });
 
@@ -486,7 +493,7 @@ export function flashRow(row, after) {
 }
 
 /** Lässt Zeilen zusammenfallen und entfernt sie danach – gemeinsam genutzt von
-    Aufgaben und Habits, damit Abhaken sich überall gleich anfühlt. */
+    To-dos und Habits, damit Abhaken sich überall gleich anfühlt. */
 export function collapseAway(wraps, done) {
   const list = wraps.filter(Boolean);
   if (!list.length) { done?.(); return; }
@@ -513,7 +520,7 @@ export function applyFlash(row, key) {
 
 /* Das Innere des Abhak-Knopfes wird einmal geparst und danach nur noch
    geklont. Vorher stand hier ein innerHTML je Zeile – also ein Lauf des
-   HTML-Parsers je Zeile, und das war bei 800 Aufgaben allein die Hälfte der
+   HTML-Parsers je Zeile, und das war bei 800 To-dos allein die Hälfte der
    gesamten Zeichenzeit. Veränderlich ist nur der Fortschritt. */
 const RING_R = 15.5;                  // Radius des Fortschrittsrings
 const RING_LEN = 2 * Math.PI * RING_R;

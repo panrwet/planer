@@ -119,14 +119,14 @@ function habitCard(o, key, isDark) {
   return card('Habits heute', parts);
 }
 
-/* ---------- Aufgaben ---------- */
+/* ---------- To-dos ---------- */
 
 function todoCard(o, key) {
   const t = o.todos;
   if (!t.total) {
-    return card('Aufgaben', [
-      el('p', { class: 'home-empty', text: 'Noch keine Aufgaben angelegt.' }),
-      linkRow('Aufgaben öffnen', () => go('todos')),
+    return card('To-dos', [
+      el('p', { class: 'home-empty', text: 'Noch keine To-dos angelegt.' }),
+      linkRow('To-dos öffnen', () => go('todos')),
     ]);
   }
 
@@ -163,11 +163,11 @@ function todoCard(o, key) {
   }
 
   parts.push(linkRow(
-    t.open ? `Alle ${t.open} offenen Aufgaben` : 'Aufgaben ansehen',
+    t.open ? `Alle ${t.open} offenen To-dos` : 'To-dos ansehen',
     () => go('todos'),
   ));
 
-  return card('Aufgaben', parts);
+  return card('To-dos', parts);
 }
 
 /** Eine Kennzahl mit Beschriftung darunter. */
@@ -178,7 +178,7 @@ function stat(value, label, cls = '') {
   ]);
 }
 
-/** Eine Zeile wie „Überfällig 2" – öffnet die Aufgaben dieser Gruppe. */
+/** Eine Zeile wie „Überfällig 2" – öffnet die To-dos dieser Gruppe. */
 function bucketRow(label, items, cls, key) {
   const row = el('button', { class: `home-bucket ${cls}`.trim(), type: 'button' }, [
     el('span', { class: 'home-bucket-label', text: label }),
@@ -189,7 +189,7 @@ function bucketRow(label, items, cls, key) {
   return row;
 }
 
-/** Sheet mit den Aufgaben einer Gruppe – direkt abhakbar. */
+/** Sheet mit den To-dos einer Gruppe – direkt abhakbar. */
 function openBucket(label, items, key) {
   openSheet({
     title: label,
@@ -278,7 +278,7 @@ function tiles() {
     return b;
   };
   return el('div', { class: 'home-tiles' }, [
-    tile('🔍', 'Suchen', 'Habits, Aufgaben, Listen', () => go('search')),
+    tile('🔍', 'Suchen', 'Habits, To-dos, Listen', () => go('search')),
     tile('⚙️', 'Einstellungen', 'Darstellung, Backup', () => go('settings')),
   ]);
 }

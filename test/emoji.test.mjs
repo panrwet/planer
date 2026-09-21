@@ -15,7 +15,7 @@ const same = (a, b) => a.replace(/️/g, '') === b.replace(/️/g, '');
 const rank = (query, want, limit = 6) =>
   searchEmoji(query, limit).findIndex(e => same(e, want));
 
-/* Was ein Nutzer bei Habits und Aufgaben eintippt, und was dabei
+/* Was ein Nutzer bei Habits und To-dos eintippt, und was dabei
    herauskommen soll. Diese Liste ist das eigentliche Qualitätsmaß. */
 const EXPECTED = [
   ['Wasser trinken', '💧'], ['Zähne putzen', '🪥'], ['Laufen', '🏃'], ['Lesen', '📖'],
@@ -60,7 +60,7 @@ test('Beugungen und Wortformen werden gefunden', () => {
   // Geprüft werden die Formen, die man tatsächlich eintippt: Infinitiv,
   // Plural, Substantivierung. Starke Partizipien mit Vokalwechsel
   // (gießen → gegossen) fängt kein Suffix-Stemming ab; als Name eines
-  // Habits oder einer Aufgabe kommen sie auch nicht vor.
+  // Habits oder einem To-do kommen sie auch nicht vor.
   assert.ok(rank('meditieren', '🧘', 3) >= 0, 'meditieren → 🧘 (Stichwort: Meditation)');
   assert.ok(rank('Blumen', '🪴', 5) >= 0, 'Plural: Blumen → 🪴');
   assert.ok(rank('Einkäufe', '🛒', 5) >= 0, 'Plural mit Umlaut: Einkäufe → 🛒');

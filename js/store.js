@@ -73,12 +73,12 @@ export const DEFAULTS = {
   theme: 'system',      // 'system' | 'light' | 'dark'
   dayStart: 0,          // 0 | 3  (Stunde, ab der ein neuer Tag zählt)
   doneTodos: 'hide',    // 'hide' | 'show'
-  lastListId: '',       // Liste, die der Todos-Reiter direkt öffnet
+  lastListId: '',       // Liste, die der To-dos-Reiter direkt öffnet ('__all' = alle)
   groups: {},           // Häufigkeits-Gruppen: id -> aufgeklappt (true/false)
   recentEmoji: [],      // zuletzt gewählte Emojis, neuestes zuerst
   saturation: 'normal', // 'off' | 'soft' | 'normal' | 'strong' – wie kräftig getönt wird
   planMinutesHabit: 30, // Standarddauer eines eingeplanten Habits
-  planMinutesTodo: 30,  // Standarddauer einer eingeplanten Aufgabe
+  planMinutesTodo: 30,  // Standarddauer einer eingeplanten To-do
 };
 
 function emptyData() {
@@ -289,7 +289,7 @@ function sanitizeTodos(input, lists) {
   const cleaned = input.flatMap((t, i) => {
     if (!t || typeof t !== 'object') return [];
     const id = str(t.id) || uid();
-    if (seen.has(id) || !listIds.has(t.listId)) return [];   // Aufgabe ohne Liste ist verloren
+    if (seen.has(id) || !listIds.has(t.listId)) return [];   // To-do ohne Liste ist verloren
     seen.add(id);
     return [{
       ...t,
@@ -325,7 +325,7 @@ function sanitizeTodos(input, lists) {
 }
 
 /* Ein Papierkorb-Eintrag hält alles beisammen, was zum Wiederherstellen nötig
-   ist – bei einer Liste also auch ihre Aufgaben, bei einem Habit sein Verlauf.
+   ist – bei einer Liste also auch ihre To-dos, bei einem Habit sein Verlauf.
    Kaputte Einträge fliegen raus statt die App zu beschädigen. */
 function sanitizeTrash(input) {
   if (!Array.isArray(input)) return [];
@@ -382,9 +382,9 @@ function sanitizeLog(input, habits) {
 
 /**
  * Schema 3: Listen sind Ordner, keine Einträge.
- * Wer versehentlich Aufgaben als Listen angelegt hat, findet sie danach als
- * Aufgaben in „Free" wieder. Angefasst werden nur *leere* Listen – wo schon
- * Aufgaben drinstehen, war die Liste offensichtlich als Liste gemeint.
+ * Wer versehentlich To-dos als Listen angelegt hat, findet sie danach als
+ * To-dos in „Free" wieder. Angefasst werden nur *leere* Listen – wo schon
+ * To-dos drinstehen, war die Liste offensichtlich als Liste gemeint.
  * Läuft genau einmal, weil danach v === 3 gespeichert wird.
  */
 function toSchema3(d) {
@@ -397,7 +397,7 @@ function toSchema3(d) {
       free = { id: uid(), name: 'Free', emoji: '🗂', color: 'indigo', order: -1 };
       d.lists.unshift(free);
     }
-    // „Free" selbst wird nie zu einer Aufgabe, auch wenn sie leer ist.
+    // „Free" selbst wird nie zu einem To-do, auch wenn es leer ist.
     const toConvert = empty.filter(l => l.id !== free.id);
     let order = d.todos.filter(t => t.listId === free.id).length;
     for (const l of toConvert) {
@@ -411,7 +411,7 @@ function toSchema3(d) {
     d.lists = d.lists.filter(l => !gone.has(l.id));
   }
 
-  // Aufgaben tragen kein Emoji mehr.
+  // To-dos tragen kein Emoji mehr.
   for (const t of d.todos) t.emoji = '';
 
   d.lists.forEach((l, i) => { l.order = i; });
@@ -785,7 +785,7 @@ export function deleteList(id) {
   const plans = data.plans.filter(p => p.kind === 'todo' && mineIds.has(p.refId)).map(p => ({ ...p }));
   toTrash({
     kind: 'list', title: l.name, emoji: l.emoji, color: l.color,
-    detail: mine.length ? `${mine.length} ${mine.length === 1 ? 'Aufgabe' : 'Aufgaben'}` : 'leer',
+    detail: mine.length ? `${mine.length} ${mine.length === 1 ? 'To-do' : 'To-dos'}` : 'leer',
     payload: { list: { ...l }, todos: mine.map(t => ({ ...t })), plans },
   });
   data.lists = data.lists.filter(x => x.id !== id);
@@ -797,7 +797,21 @@ export function deleteList(id) {
 
 /* ---------- Todos ---------- */
 
+/* Der Reiter „All" ist keine echte Liste, sondern eine Sicht auf alle. Die
+   Kennung ist bewusst keine, die uid() je vergeben würde. list('__all') gibt
+   deshalb null zurück – damit lässt sich diese Sicht nicht bearbeiten, nicht
+   löschen und nichts direkt in sie hineinlegen, ohne dass jede Funktion es
+   einzeln abfangen muss. */
+export const ALL_LISTS = '__all';
+
 export function todosOf(listId) {
+  if (listId === ALL_LISTS) {
+    // Liste für Liste, in der Reihenfolge der Listen – sonst stünde alles
+    // durcheinander, weil `order` nur innerhalb einer Liste etwas bedeutet.
+    const rang = new Map(lists().map((l, i) => [l.id, i]));
+    return [...data.todos].sort((a, b) =>
+      (rang.get(a.listId) ?? 1e9) - (rang.get(b.listId) ?? 1e9) || a.order - b.order);
+  }
   return data.todos.filter(t => t.listId === listId).sort((a, b) => a.order - b.order);
 }
 
@@ -810,7 +824,7 @@ export function childrenOf(id) {
 }
 
 /** Alle Nachfahren, beliebig tief.
-    `seen` bricht Ringe ab: zeigt eine Aufgabe (nach einem beschädigten Import)
+    `seen` bricht Ringe ab: zeigt ein To-do (nach einem beschädigten Import)
     auf sich selbst oder im Kreis, liefe die Rekursion sonst bis zum Absturz. */
 export function descendantsOf(id, acc = [], seen = new Set([id])) {
   for (const c of childrenOf(id)) {
@@ -823,7 +837,7 @@ export function descendantsOf(id, acc = [], seen = new Set([id])) {
 }
 
 /**
- * Alle Überaufgaben von unten nach oben.
+ * Alle ÜberTo-dos von unten nach oben.
  * Die einzige Stelle, die nach oben läuft – so ist der Schutz gegen
  * Ringverweise (nach einem beschädigten Import) nur einmal nötig statt an
  * jeder Aufrufstelle.
@@ -879,13 +893,13 @@ export function deleteTodo(id) {
   if (!t) return;
   const kids = descendantsOf(id);
   const ids = new Set([id, ...kids.map(d => d.id)]);
-  // Die Unteraufgaben kommen mit – sonst hinge die Hälfte beim Wiederherstellen
+  // Die Unter-To-dos kommen mit – sonst hinge die Hälfte beim Wiederherstellen
   // im Leeren. Die Reihenfolge bleibt erhalten, Eltern vor Kindern.
   const gone = data.todos.filter(x => ids.has(x.id)).map(x => ({ ...x }));
   const plans = data.plans.filter(p => p.kind === 'todo' && ids.has(p.refId)).map(p => ({ ...p }));
   toTrash({
     kind: 'todo', title: t.title, color: t.color,
-    detail: kids.length ? `mit ${kids.length} ${kids.length === 1 ? 'Unteraufgabe' : 'Unteraufgaben'}` : '',
+    detail: kids.length ? `mit ${kids.length} ${kids.length === 1 ? 'Unter-To-do' : 'Unter-To-dos'}` : '',
     payload: { todos: gone, plans },
   });
   data.todos = data.todos.filter(x => !ids.has(x.id));
@@ -893,8 +907,8 @@ export function deleteTodo(id) {
   save();
 }
 
-/** Abhaken zieht die Unteraufgaben mit – wie in Apple Erinnerungen.
-    Ein abgehaktes Unterelement hakt die Überaufgabe ab, wenn es das letzte war. */
+/** Abhaken zieht die Unter-To-dos mit – wie in Apple Erinnerungen.
+    Ein abgehaktes Unterelement hakt die ÜberTo-do ab, wenn es das letzte war. */
 export function toggleTodo(id, force) {
   const t = todo(id);
   if (!t) return [];
@@ -915,7 +929,7 @@ export function toggleTodo(id, force) {
   set(t, done, stamp);
   for (const d of descendantsOf(id)) set(d, done, stamp);
 
-  // Überaufgaben nachziehen – von innen nach außen, ringsicher
+  // ÜberTo-dos nachziehen – von innen nach außen, ringsicher
   for (const parent of ancestorsOf(id)) {
     const kids = descendantsOf(parent.id);
     const allDone = kids.length > 0 && kids.every(k => k.done);
@@ -926,7 +940,7 @@ export function toggleTodo(id, force) {
   return changed;
 }
 
-/** Kann diese Aufgabe eine Ebene tiefer? Nur wenn ein Vorgänger auf gleicher
+/** Kann dieses To-do eine Ebene tiefer? Nur wenn ein Vorgänger auf gleicher
     Ebene existiert, der ihr Elternteil werden kann, und die Grenze hält. */
 export function canIndent(id, maxDepth = 2) {
   const t = todo(id);
@@ -943,7 +957,7 @@ export function canOutdent(id) {
   return !!(t && t.parent);
 }
 
-/** Macht die Aufgabe zur Unteraufgabe ihres Vorgängers. */
+/** Macht das To-do zum Unter-To-do seines Vorgängers. */
 export function indentTodo(id, maxDepth = 2) {
   if (!canIndent(id, maxDepth)) return false;
   const t = todo(id);
@@ -958,7 +972,7 @@ export function indentTodo(id, maxDepth = 2) {
   return true;
 }
 
-/** Hebt die Aufgabe eine Ebene an; nachfolgende Geschwister wandern zu ihr. */
+/** Hebt das To-do eine Ebene an; nachfolgende Geschwister wandern zu ihr. */
 export function outdentTodo(id) {
   if (!canOutdent(id)) return false;
   const t = todo(id);
@@ -1081,14 +1095,14 @@ export function overview(ref = today()) {
 /* ==========================================================================
    Planung
    Ein Plan-Eintrag legt fest, wann etwas getan werden soll – nicht, wann es
-   fertig sein muss. Die Fälligkeit einer Aufgabe bleibt davon unberührt:
+   fertig sein muss. Die Fälligkeit eines To-dos bleibt davon unberührt:
    „fällig Freitag, eingeplant Dienstag 14 Uhr" ist der Normalfall.
 
    Von allein erscheint nichts. Ein Eintrag entsteht nur durch Auswahl, und er
    gilt für einen Tag – es sei denn, er ist als `repeat` dauerhaft angelegt:
 
      Habit     an jedem Tag, an dem das Habit ohnehin dran ist (sein Rhythmus)
-     Aufgabe   an jedem Tag, bis sie abgehakt ist
+     To-do   an jedem Tag, bis sie abgehakt ist
 
    Beide beginnen am Tag des Eintrags; frühere Tage bleiben leer. Einzelne Tage
    lassen sich über `skip` aus einer Serie nehmen, ohne sie ganz zu löschen.
@@ -1106,7 +1120,7 @@ function sanitizePlans(input, habits, todos) {
   return input.flatMap((p) => {
     if (!p || typeof p !== 'object') return [];
     if (p.kind !== 'habit' && p.kind !== 'todo') return [];
-    // Ein Eintrag ohne sein Ziel ist wertlos – Habit oder Aufgabe ist weg.
+    // Ein Eintrag ohne sein Ziel ist wertlos – Habit oder To-do ist weg.
     const known = p.kind === 'habit' ? habitIds : todoIds;
     if (!known.has(p.refId)) return [];
     if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date)) return [];
@@ -1207,7 +1221,7 @@ function planAppliesOn(p, key) {
     return !!h && isActiveOn(h, key);
   }
   const t = todo(p.refId);
-  // Eine dauerhaft eingeplante Aufgabe kommt täglich wieder, bis sie erledigt ist.
+  // Eine dauerhaft eingeplante To-do kommt täglich wieder, bis sie erledigt ist.
   return !!t && !t.done;
 }
 
@@ -1235,7 +1249,7 @@ export function planOn(key) {
       start,
       end: Math.min(24 * 60, start + p.minutes),
       done: p.kind === 'habit' ? isDoneOn(ref, key) : ref.done,
-      // Hinweis, wenn eine Aufgabe vor dem geplanten Tag fällig ist.
+      // Hinweis, wenn ein To-do vor dem geplanten Tag fällig ist.
       dueNote: p.kind === 'todo' && ref.due && ref.due < key ? ref.due : '',
     });
   }
@@ -1258,13 +1272,13 @@ export function plannedDaysOfMonth(key) {
   return out;
 }
 
-/** Alle Einträge zu einem Habit bzw. einer Aufgabe – auch für den Papierkorb. */
+/** Alle Einträge zu einem Habit bzw. einem To-do – auch für den Papierkorb. */
 export function plansFor(kind, refId) {
   return data.plans.filter(p => p.kind === kind && p.refId === refId);
 }
 
 /* Abgehakt wird im Plan mit demselben Knopf und derselben Wirkung wie in der
-   Liste: bump/unbump beim Habit, toggleTodo bei der Aufgabe. Eine eigene
+   Liste: bump/unbump beim Habit, toggleTodo beim To-do. Eine eigene
    Abhak-Logik für den Plan wäre genau die Art Abweichung, die sich später
    auseinanderentwickelt. Der Plan braucht dafür keine eigene Funktion. */
 
@@ -1273,7 +1287,7 @@ export function plansFor(kind, refId) {
    Löschen ist nicht mehr endgültig: Was gelöscht wird, landet hier mit allem,
    was zum Wiederherstellen nötig ist, und verschwindet erst nach TRASH_DAYS.
    Beim Wiederherstellen kann sich die Welt verändert haben – die Liste einer
-   Aufgabe kann fehlen, eine Kennung schon wieder vergeben sein. Das wird
+   To-do kann fehlen, eine Kennung schon wieder vergeben sein. Das wird
    aufgelöst statt abgelehnt, und die Meldung sagt, was angepasst wurde.
    ========================================================================== */
 
@@ -1409,9 +1423,9 @@ function putPlansBack(plans, remap) {
 }
 
 /**
- * Legt Aufgaben zurück in eine Liste. Kennungen, die es schon gibt, werden neu
+ * Legt To-dos zurück in eine Liste. Kennungen, die es schon gibt, werden neu
  * vergeben – und die Eltern-Verweise innerhalb der Gruppe ziehen mit um.
- * Zeigt ein Verweis nach außen, wird die Aufgabe ausgerückt statt ins Leere zu
+ * Zeigt ein Verweis nach außen, wird das To-do ausgerückt statt ins Leere zu
  * hängen.
  * @returns {{renamed: boolean, remap: Map<string,string>}} ob Kennungen neu
  *   vergeben werden mussten, und die Zuordnung alt → neu (die Planung hängt
@@ -1593,7 +1607,7 @@ export function search(query, { settingsEntries = [] } = {}) {
     const l = list(t.listId);
     out.push({
       kind: 'todo', id: t.id, listId: t.listId, score, title: t.title, color: t.color || l?.color,
-      subtitle: `Aufgabe in ${l?.name || '?'}${t.done ? ' · erledigt' : ''}`,
+      subtitle: `To-do in ${l?.name || '?'}${t.done ? ' · erledigt' : ''}`,
       done: t.done,
     });
   }

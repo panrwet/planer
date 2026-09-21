@@ -12,7 +12,7 @@
 <meta name="theme-color" content="#fcfcfd" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111113" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Habits verfolgen und Todos verwalten – alles lokal auf dem Gerät.">
+<meta name="description" content="Habits verfolgen und To-dos verwalten – alles lokal auf dem Gerät.">
 
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -44,7 +44,7 @@
         <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
         <input id="search-input" class="input" type="search" placeholder="Suchen …"
                autocomplete="off" autocapitalize="off" autocorrect="off" enterkeyhint="search"
-               aria-label="Suche über Habits, Aufgaben, Listen und Einstellungen">
+               aria-label="Suche über Habits, To-dos, Listen und Einstellungen">
         <button class="search-clear" id="search-clear" type="button" aria-label="Suche leeren" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
@@ -96,6 +96,7 @@
       </div>
       <h1 class="title" id="day-title">Tag</h1>
       <p class="subtitle" id="day-subtitle"></p>
+      <div class="week-strip" id="week-strip" aria-label="Woche"></div>
     </header>
     <div class="scroll day-scroll" id="day-scroll"></div>
   </section>
@@ -125,8 +126,8 @@
   <section class="screen" id="screen-todos" data-tab="todos">
     <header class="topbar">
       <div class="topbar-inner">
-        <h1 class="title" id="todos-title">Todos</h1>
-        <button class="icon-btn primary" id="todo-add" type="button" aria-label="Neue Aufgabe">
+        <h1 class="title" id="todos-title">To-dos</h1>
+        <button class="icon-btn primary" id="todo-add" type="button" aria-label="Neues To-do">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         </button>
       </div>
@@ -138,7 +139,7 @@
       <div class="empty" id="todos-empty" hidden>
         <div class="empty-icon">✓</div>
         <h2>Nichts offen</h2>
-        <p id="todos-empty-text">Tippe oben rechts auf + für eine neue Aufgabe.</p>
+        <p id="todos-empty-text">Tippe oben rechts auf + für ein neues To-do.</p>
       </div>
     </div>
   </section>
@@ -209,7 +210,7 @@
     </button>
     <button class="tab" data-goto="todos" type="button">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
-      <span>Todos</span>
+      <span>To-dos</span>
     </button>
   </nav>
 </div>

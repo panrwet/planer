@@ -1,4 +1,4 @@
-/* Freie Suche über alles: Habits, Aufgaben samt Notizen, Listen und
+/* Freie Suche über alles: Habits, To-dos samt Notizen, Listen und
    Einstellungen. Die Treffer liefert store.search(); ein neuer Bereich wird
    dort ergänzt und erscheint hier automatisch. */
 
@@ -8,7 +8,7 @@ import { SETTINGS_INDEX } from './settings.js';
 
 const GROUPS = [
   { kind: 'habit', label: 'Habits' },
-  { kind: 'todo', label: 'Aufgaben' },
+  { kind: 'todo', label: 'To-dos' },
   { kind: 'list', label: 'Listen' },
   { kind: 'setting', label: 'Einstellungen' },
 ];
@@ -38,7 +38,7 @@ export function renderSearch() {
       scroll.replaceChildren(el('div', { class: 'empty' }, [
         el('div', { class: 'empty-icon', text: '🔍' }),
         el('h2', { text: 'Alles durchsuchen' }),
-        el('p', { text: 'Habits, Aufgaben und ihre Notizen, Listen und Einstellungen – ab zwei Buchstaben.' }),
+        el('p', { text: 'Habits, To-dos und ihre Notizen, Listen und Einstellungen – ab zwei Buchstaben.' }),
       ]));
       return;
     }
