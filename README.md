@@ -64,6 +64,27 @@ würde „0 von 2".
   existieren
 - Ein neuer Bereich braucht nur einen Block in `store.search()`
 
+**Kalender**
+- Vierter Reiter rechts neben der Startseite, Monatsraster im Stil des Apple
+  Kalenders: Wochentage oben, heute im gefüllten Kreis, ein Punkt unter jedem
+  Tag, an dem etwas geplant ist. Tage aus Vor- und Folgemonat füllen das Raster
+  auf, damit es lückenlos von Montag zu Sonntag läuft
+- Ein Tipp auf einen Tag öffnet den **Tagesplan**: Stundenraster von 0 bis 24
+  Uhr, Einträge als Blöcke in ihrer Farbe, Höhe nach Dauer, Überlappungen
+  nebeneinander, am heutigen Tag eine Linie für die aktuelle Uhrzeit. Der Plan
+  springt beim Öffnen zur ersten Uhrzeit, sonst zur laufenden Stunde
+- Im Plan wird direkt abgehakt – mit demselben Knopf und derselben Wirkung wie
+  in den Listen: Tippen zählt hoch, Gedrückthalten zählt zurück
+- **Einplanen** über das + oben rechts: dieselben zwei Bereiche wie die App,
+  Habits und Aufgaben, mit derselben tippfehlertoleranten Suche. Vorhandenes
+  auswählen oder gleich neu anlegen – dafür öffnet derselbe Editor wie im
+  jeweiligen Reiter, und danach geht es direkt ins Einplanen
+- Ein Eintrag hat Uhrzeit, Dauer und die Möglichkeit, **dauerhaft** zu gelten:
+  ein Habit steht dann an jedem Tag im Plan, an dem es ohnehin dran ist (sein
+  Rhythmus), eine Aufgabe täglich, bis sie abgehakt ist. Einzelne Tage lassen
+  sich aus einer Reihe nehmen, ohne sie ganz zu löschen
+- Von allein erscheint nichts. Ein Eintrag entsteht nur durch Auswahl
+
 **Habits**
 - Nach Häufigkeit gruppiert: *Täglich*, *An bestimmten Tagen*, *Pro Woche*,
   *Pro Monat* und *Erledigt* – jede Gruppe auf- und zuklappbar, der Zustand
@@ -92,6 +113,10 @@ würde „0 von 2".
   sortieren
 - Aufgaben mit Name, Farbe, Notiz und optionalem Fälligkeitsdatum. Abhaken
   sitzt rechts
+- **Einplanen ändert die Fälligkeit nicht.** „Fällig Freitag, eingeplant
+  Dienstag 14 Uhr" ist der Normalfall: Wann du etwas tust, ist nicht, wann es
+  fertig sein muss. Steht eine eingeplante Aufgabe im Plan, deren Fälligkeit
+  schon vorbei ist, sagt der Block es in Warnfarbe
 - Überfälliges ist an drei Stellen sichtbar: „3 Tage überfällig" in der Zeile,
   ein Zähler in der Kopfzeile und ein roter Zähler am Listen-Reiter. Die
   Sortierung bleibt davon unberührt
@@ -145,6 +170,8 @@ würde „0 von 2".
 - Erreichbar über **Einstellungen → Zuletzt gelöscht**, mit Zähler
 
 **Einstellungen**
+- Standarddauer beim Einplanen, getrennt für Habits und Aufgaben (Vorgabe
+  30 Minuten, je Eintrag änderbar)
 - Abgehakte Habits ausblenden oder ausgrauen
 - Erledigte Aufgaben ausblenden oder anzeigen
 - Zeilenhöhe klein / mittel / groß
@@ -176,6 +203,7 @@ js/todos.js             Listen, Reiterleiste, Drop-up, Aufgaben
 js/drag.js              Umsortieren per Finger, mit und ohne Einrücken
 js/swipe.js             Wischen nach rechts zum Ein- und Ausrücken
 js/home.js              Startseite mit dem Überblick
+js/calendar.js          Monatsraster, Tagesplan, Einplanen
 js/search.js            Freie Suche über alle Bereiche
 js/emoji.js             Emoji-Suche mit deutschem Wortstamm-Abgleich
 js/emoji-data.js        erzeugt – 1949 Emojis mit deutschen Namen
@@ -228,6 +256,8 @@ Kennungen. Bisher:
 - `toSchema5` – nichts umzubauen: Der Papierkorb kommt als leeres Feld dazu.
   Die Stufe existiert trotzdem, damit ein älterer Stand einmal durch die
   Bereinigung läuft und danach die neue Nummer trägt.
+- `toSchema6` – ebenso für die Planung (`plans`). Bestehende Habits und
+  Aufgaben bleiben unangetastet; geplant ist zunächst nichts.
 
 Wer eine Migration ergänzt, zählt `SCHEMA` hoch und hängt einen Schritt an. Die
 Tests prüfen die ganze Kette von einem Stand ohne Versionsnummer bis heute,
@@ -243,6 +273,32 @@ Sonst würde ein zweites offenes Fenster (Safari-Tab neben der App vom
 Home-Bildschirm) beim Verlassen seinen alten Stand über die neueren Daten
 schreiben. Ändert eine andere Instanz etwas, übernimmt die App den neuen Stand
 über das `storage`-Ereignis.
+
+## Planung
+
+Ein Plan-Eintrag legt fest, **wann etwas getan werden soll** – nicht, wann es
+fertig sein muss. Er verweist auf ein Habit oder eine Aufgabe und hat Datum,
+Uhrzeit, Dauer und ein `repeat`-Kennzeichen:
+
+```
+{ id, kind: 'habit'|'todo', refId, date, time, minutes, repeat, skip: [] }
+```
+
+Ohne `repeat` gilt er an genau einem Tag. Mit `repeat` beginnt er am Tag des
+Eintrags und wiederholt sich – ein Habit an jedem Tag, an dem es nach seinem
+eigenen Rhythmus dran ist, eine Aufgabe täglich, bis sie abgehakt ist. Die
+Regeln stehen an einer Stelle in `planAppliesOn()`; `planOn(tag)` löst sie auf
+und gibt die Einträge samt Ziel, Farbe, Zustand und Fälligkeitshinweis zurück,
+damit die Ansicht nichts nachschlagen muss.
+
+`skip` nimmt einzelne Tage aus einer Reihe. Trifft es den ersten Tag, wird
+stattdessen der Anfang nach vorn geschoben – sonst würde die Ausnahmeliste bei
+täglicher Nutzung immer weiter wachsen.
+
+Löschen greift durch: Ein gelöschtes Habit, eine gelöschte Aufgabe oder Liste
+nimmt ihre Plan-Einträge mit in den Papierkorb und bringt sie beim
+Wiederherstellen zurück. Muss dabei eine Kennung neu vergeben werden, ziehen
+die Einträge mit um (`putPlansBack`) – ohne das zeigten sie ins Leere.
 
 ## Die Zeile
 

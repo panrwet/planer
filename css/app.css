@@ -226,7 +226,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   left: 0; right: 0; bottom: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   height: calc(var(--tabbar-h) + var(--safe-b));
   padding-bottom: var(--safe-b);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
@@ -440,6 +440,191 @@ input, textarea { -webkit-user-select: text; user-select: text; }
               opacity .18s ease-out,
               margin-bottom .26s cubic-bezier(.4, 0, .2, 1);
 }
+
+/* ==========================================================================
+   Kalender
+   Monatsraster im Stil des Apple Kalenders: Wochentage oben, heute im Kreis,
+   ein Punkt unter Tagen mit Planung.
+   ========================================================================== */
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin: 2px 0 6px;
+}
+.cal-weekdays span {
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  row-gap: 2px;
+}
+.cal-day {
+  position: relative;
+  aspect-ratio: 1 / 1.05;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 12px;
+}
+.cal-day.foreign { opacity: .32; }
+.cal-day:active { background: var(--surface-2); }
+
+.cal-num {
+  display: grid;
+  place-items: center;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  font-size: 16.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* Heute trägt den Kreis, wie im Apple Kalender. */
+.cal-day.today .cal-num {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 650;
+}
+
+.cal-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: transparent;
+}
+.cal-dot.on { background: var(--accent); }
+.cal-day.today .cal-dot.on { background: var(--text-3); }
+
+.cal-note {
+  margin-top: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* ==========================================================================
+   Tagesplan
+   Stundenraster von oben nach unten, Einträge als Blöcke dazwischen.
+   ========================================================================== */
+/* Der Titel trägt Wochentag und Datum – in der großen Titelgröße bricht das
+   auf zwei Zeilen und schiebt den Plan nach unten. */
+#day-title { font-size: 21px; }
+
+.day-board {
+  position: relative;
+  /* Platz für die Stundenbeschriftung links, oben für die erste Beschriftung,
+     die sonst über den Rand hinausragt. */
+  padding: 10px 0 0 54px;
+}
+
+.day-rail { position: relative; }
+.day-hour { position: absolute; left: -54px; right: 0; height: 0; }
+.day-hour-label {
+  position: absolute;
+  left: 0; top: -7px;
+  width: 44px;
+  text-align: right;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.day-hour-line {
+  position: absolute;
+  left: 54px; right: 0; top: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Der Layer beginnt hinter der Stundenspalte. Achtung: `left` zählt ab der
+   Polsterungsbox, also ab dem Rand des Boards – nicht ab dem Ende seiner
+   Polsterung. Mit left:0 lägen die Blöcke über den Uhrzeiten. */
+.day-blocks { position: absolute; left: 54px; right: 0; top: 10px; }
+
+.day-block {
+  position: absolute;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 5px 5px 9px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--tint, var(--accent)) var(--tint-edge), var(--border));
+  background: color-mix(in oklab, var(--tint, var(--accent)) var(--tint-bg), var(--surface));
+  box-shadow: var(--shadow-1);
+}
+/* Der Farbbalken an der Kante wie bei den Zeilen – dasselbe Erkennungsmerkmal. */
+.day-block::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 4px; bottom: 4px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--tint, var(--accent));
+  opacity: var(--tint-bar);
+}
+.day-block:active { background: var(--surface-2); }
+.day-block.is-done { opacity: .5; }
+.day-block.is-done .day-block-title { text-decoration: line-through; text-decoration-thickness: 1.5px; }
+
+.day-block-body { flex: 1; min-width: 0; }
+.day-block-title {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 14.5px; font-weight: 550;
+  line-height: 1.25;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.day-block-emoji { flex: none; font-size: 14px; line-height: 1; }
+.day-block-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-block-meta {
+  margin-top: 1px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.day-block-meta.late { color: var(--danger); font-weight: 550; }
+
+/* Die Linie der aktuellen Uhrzeit – nur am heutigen Tag. */
+.day-now {
+  position: absolute;
+  left: 44px; right: 0;
+  margin-top: 10px;   /* dieselbe Polsterung wie das Raster */
+  height: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.day-now-dot {
+  position: absolute;
+  left: 0; top: -4px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.day-now-bar {
+  position: absolute;
+  left: 8px; right: 0; top: 0;
+  border-top: 1.5px solid var(--danger);
+}
+
+/* Auswahl beim Einplanen */
+.pick-list { margin: 10px 0 14px; max-height: 44vh; overflow-y: auto; }
+
+.plan-target {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px;
+  margin-bottom: 4px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.plan-target-name { font-size: 16px; font-weight: 600; }
+.plan-target-kind { font-size: 12.5px; color: var(--text-3); margin-top: 1px; }
 
 /* ==========================================================================
    Wischen zum Ein- und Ausrücken

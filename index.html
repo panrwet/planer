@@ -53,6 +53,53 @@
     <div class="scroll" id="search-scroll"></div>
   </section>
 
+  <!-- KALENDER -->
+  <section class="screen" id="screen-calendar" data-tab="calendar">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <h1 class="title" id="calendar-title">Kalender</h1>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="calendar-today" type="button" aria-label="Zu heute">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg>
+          </button>
+          <button class="icon-btn" id="calendar-prev" type="button" aria-label="Voriger Monat">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button class="icon-btn" id="calendar-next" type="button" aria-label="Nächster Monat">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+    <div class="scroll" id="calendar-scroll"></div>
+  </section>
+
+  <!-- TAGESPLAN -->
+  <section class="screen" id="screen-day" data-tab="calendar">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <button class="back-btn" id="day-back" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          <span>Kalender</span>
+        </button>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="day-prev" type="button" aria-label="Voriger Tag">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button class="icon-btn" id="day-next" type="button" aria-label="Nächster Tag">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button class="icon-btn primary" id="day-add" type="button" aria-label="Etwas einplanen">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+      </div>
+      <h1 class="title" id="day-title">Tag</h1>
+      <p class="subtitle" id="day-subtitle"></p>
+    </header>
+    <div class="scroll day-scroll" id="day-scroll"></div>
+  </section>
+
   <!-- HABITS -->
   <section class="screen" id="screen-habits" data-tab="habits">
     <header class="topbar">
@@ -151,6 +198,10 @@
     <button class="tab" data-goto="home" type="button" aria-current="page">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>
       <span>Start</span>
+    </button>
+    <button class="tab" data-goto="calendar" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8.5 3.5v3M15.5 3.5v3"/></svg>
+      <span>Kalender</span>
     </button>
     <button class="tab" data-goto="habits" type="button">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>

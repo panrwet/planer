@@ -872,6 +872,246 @@ test('Suche bleibt schnell genug für Eingabe im Takt', () => {
   assert.ok(ms < 900, `fünf Suchen über 2000 Aufgaben dauerten ${ms} ms`);
 });
 
+console.log('\nPlanung');
+
+/** Ein Habit, eine Aufgabe, ein Montag als Bezugstag. */
+function planSetup() {
+  S._setData({});
+  const h = S.addHabit({ name: 'Laufen', emoji: '🏃', color: 'green', sched: 'days',
+                         days: [1, 3, 5], unit: 'km', target: 5, created: '2026-01-01' });
+  const l = S.addList({ name: 'Büro', emoji: '💼', color: 'blue' });
+  const t = S.addTodo(l.id, { title: 'Steuer sortieren' });
+  return { h, l, t };
+}
+const titelAm = (key) => S.planOn(key).map(e => `${e.plan.time} ${e.title}`);
+
+test('nichts erscheint von allein', () => {
+  planSetup();
+  assert.deepEqual(S.planOn(MON), [], 'kein Eintrag ohne Auswahl');
+  assert.equal(S.hasPlanOn(MON), false);
+});
+
+test('einzelner Eintrag gilt nur an seinem Tag', () => {
+  const { h } = planSetup();
+  S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '07:00' });
+  assert.deepEqual(titelAm(MON), ['07:00 Laufen']);
+  assert.deepEqual(titelAm(d(1)), [], 'am Folgetag nichts');
+  assert.deepEqual(titelAm(d(-1)), [], 'am Vortag nichts');
+});
+
+test('Standarddauer kommt aus den Einstellungen, getrennt je Art', () => {
+  const { h, t } = planSetup();
+  S.setSetting('planMinutesHabit', 45);
+  S.setSetting('planMinutesTodo', 90);
+  const a = S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '07:00' });
+  const b = S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
+  assert.equal(a.minutes, 45);
+  assert.equal(b.minutes, 90);
+  // Ausdrücklich angegebene Dauer schlägt die Vorgabe
+  assert.equal(S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '20:00', minutes: 15 }).minutes, 15);
+});
+
+test('dauerhaftes Habit folgt seinem Rhythmus, nicht jedem Tag', () => {
+  const { h } = planSetup();          // Laufen an Mo, Mi, Fr
+  S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '07:00', repeat: true });
+  const woche = [0, 1, 2, 3, 4, 5, 6].map(n => (S.hasPlanOn(d(n)) ? 'x' : '·')).join('');
+  assert.equal(woche, 'x·x·x··', 'Mo Mi Fr geplant, Di Do Sa So frei');
+});
+
+test('dauerhafte Aufgabe kommt täglich, bis sie erledigt ist', () => {
+  const { t } = planSetup();
+  S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00', repeat: true });
+  assert.equal(S.hasPlanOn(d(3)), true);
+  S.toggleTodo(t.id);
+  assert.equal(S.hasPlanOn(d(3)), false, 'nach dem Abhaken ist Ruhe');
+  assert.deepEqual(titelAm(MON), ['14:00 Steuer sortieren'], 'am Starttag bleibt der Eintrag sichtbar');
+  S.toggleTodo(t.id);
+  assert.equal(S.hasPlanOn(d(3)), true, 'wieder geöffnet, wieder eingeplant');
+});
+
+test('eine Serie beginnt an ihrem Tag, nicht früher', () => {
+  const { t } = planSetup();
+  S.addPlan({ kind: 'todo', refId: t.id, date: d(2), time: '14:00', repeat: true });
+  assert.equal(S.hasPlanOn(d(1)), false, 'davor nichts');
+  assert.equal(S.hasPlanOn(d(2)), true);
+  assert.equal(S.hasPlanOn(d(9)), true);
+});
+
+test('einzelnen Tag aus der Serie nehmen', () => {
+  const { t } = planSetup();
+  const p = S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00', repeat: true });
+  S.skipPlanOn(p.id, d(2));
+  assert.equal(S.hasPlanOn(d(1)), true);
+  assert.equal(S.hasPlanOn(d(2)), false, 'der übersprungene Tag ist frei');
+  assert.equal(S.hasPlanOn(d(3)), true, 'die Serie läuft weiter');
+});
+
+test('den ersten Tag einer Serie nehmen schiebt den Anfang', () => {
+  const { t } = planSetup();
+  const p = S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00', repeat: true });
+  S.skipPlanOn(p.id, MON);
+  assert.equal(S.hasPlanOn(MON), false);
+  assert.equal(S.hasPlanOn(d(1)), true, 'ab dem Folgetag läuft sie weiter');
+  assert.deepEqual(S.plan(p.id).skip, [], 'ohne wachsende Ausnahmeliste');
+});
+
+test('einen einzelnen Eintrag nehmen löscht ihn', () => {
+  const { h } = planSetup();
+  const p = S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '07:00' });
+  S.skipPlanOn(p.id, MON);
+  assert.equal(S.plan(p.id), null);
+  assert.equal(S.hasPlanOn(MON), false);
+});
+
+test('Einträge kommen nach Uhrzeit sortiert', () => {
+  const { h, t } = planSetup();
+  S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
+  S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '07:00' });
+  S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '19:30' });
+  assert.deepEqual(titelAm(MON), ['07:00 Laufen', '14:00 Steuer sortieren', '19:30 Laufen']);
+});
+
+test('Eintrag bringt Farbe, Emoji und Zustand mit', () => {
+  const { h, t } = planSetup();
+  S.setValue(h.id, MON, 5);
+  S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '07:00', minutes: 60 });
+  S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
+  const [a, b] = S.planOn(MON);
+  assert.equal(a.emoji, '🏃');
+  assert.equal(a.color, 'green');
+  assert.equal(a.done, true, 'Habit am Ziel gilt als erledigt');
+  assert.equal(a.start, 7 * 60);
+  assert.equal(a.end, 8 * 60);
+  assert.equal(b.emoji, '', 'Aufgaben haben kein Emoji');
+  assert.equal(b.color, 'blue', 'ohne eigene Farbe die der Liste');
+  assert.equal(b.done, false);
+});
+
+test('Plan weist auf eine vorher fällige Aufgabe hin', () => {
+  const { t } = planSetup();
+  S.updateTodo(t.id, { due: d(-3) });
+  S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
+  assert.equal(S.planOn(MON)[0].dueNote, d(-3));
+  // Fälligkeit nach dem geplanten Tag ist kein Hinweis wert
+  S.updateTodo(t.id, { due: d(5) });
+  assert.equal(S.planOn(MON)[0].dueNote, '');
+});
+
+test('Einplanen lässt die Fälligkeit unberührt', () => {
+  const { t } = planSetup();
+  S.updateTodo(t.id, { due: d(4) });
+  S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
+  assert.equal(S.todo(t.id).due, d(4), 'die Fälligkeit bleibt, wo sie war');
+});
+
+test('Dauer bleibt in vernünftigen Grenzen', () => {
+  const { h } = planSetup();
+  assert.equal(S.addPlan({ kind: 'habit', refId: h.id, date: MON, minutes: 0 }).minutes, 5);
+  assert.equal(S.addPlan({ kind: 'habit', refId: h.id, date: MON, minutes: 9999 }).minutes, 1440);
+  const p = S.addPlan({ kind: 'habit', refId: h.id, date: MON, minutes: 30 });
+  assert.equal(S.updatePlan(p.id, { minutes: -5 }).minutes, 5);
+});
+
+test('ein Eintrag endet spätestens um Mitternacht', () => {
+  const { h } = planSetup();
+  S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '23:30', minutes: 120 });
+  assert.equal(S.planOn(MON)[0].end, 24 * 60);
+});
+
+test('Uhrzeit und Minuten rechnen in beide Richtungen', () => {
+  assert.equal(S.minutesOf('07:30'), 450);
+  assert.equal(S.minutesOf('00:00'), 0);
+  assert.equal(S.timeOf(450), '07:30');
+  assert.equal(S.timeOf(0), '00:00');
+  assert.equal(S.timeOf(1439), '23:59');
+  assert.equal(S.timeOf(99999), '23:59', 'wird begrenzt');
+});
+
+test('Tage des Monats mit Planung', () => {
+  const { h } = planSetup();
+  S.addPlan({ kind: 'habit', refId: h.id, date: '2026-09-03', time: '07:00' });
+  S.addPlan({ kind: 'habit', refId: h.id, date: '2026-09-17', time: '07:00' });
+  S.addPlan({ kind: 'habit', refId: h.id, date: '2026-10-02', time: '07:00' });
+  const tage = S.plannedDaysOfMonth('2026-09-15');
+  assert.deepEqual([...tage].sort(), ['2026-09-03', '2026-09-17'], 'nur der eigene Monat');
+});
+
+test('gelöschtes Habit nimmt seine Planung mit und bringt sie zurück', () => {
+  const { h } = planSetup();
+  S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '07:00', repeat: true });
+  S.deleteHabit(h.id);
+  assert.equal(S.hasPlanOn(MON), false, 'Planung ist mit weg');
+
+  S.restoreTrash(S.trash()[0].id);
+  assert.equal(S.hasPlanOn(MON), true, 'und mit zurück');
+  assert.deepEqual(titelAm(MON), ['07:00 Laufen']);
+});
+
+test('gelöschte Aufgabe nimmt ihre Planung mit und bringt sie zurück', () => {
+  const { t } = planSetup();
+  S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
+  S.deleteTodo(t.id);
+  assert.equal(S.hasPlanOn(MON), false);
+  S.restoreTrash(S.trash()[0].id);
+  assert.deepEqual(titelAm(MON), ['14:00 Steuer sortieren']);
+});
+
+test('gelöschte Liste nimmt die Planung ihrer Aufgaben mit', () => {
+  const { l, t } = planSetup();
+  S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
+  S.deleteList(l.id);
+  assert.equal(S.hasPlanOn(MON), false);
+  S.restoreTrash(S.trash()[0].id);
+  assert.deepEqual(titelAm(MON), ['14:00 Steuer sortieren']);
+});
+
+test('neu vergebene Kennung reißt die Planung nicht ab', () => {
+  const { t } = planSetup();
+  S.addPlan({ kind: 'todo', refId: t.id, date: MON, time: '14:00' });
+  S.deleteTodo(t.id);
+  const eintrag = S.trash()[0];
+  // Die Kennung wieder besetzen – wie nach einem zurückgespielten Stand
+  S.getData().todos.push({ ...t, listId: S.lists()[0].id, title: 'Besetzer' });
+
+  const r = S.restoreTrash(eintrag.id);
+  assert.match(r.note, /Kennung/);
+  assert.deepEqual(titelAm(MON), ['14:00 Steuer sortieren'],
+    'der Eintrag zeigt auf die wiederhergestellte Aufgabe, nicht auf den Besetzer');
+});
+
+test('Planung ohne ihr Ziel wird beim Laden verworfen', () => {
+  S._setData({
+    v: 6,
+    habits: [{ id: 'h1', name: 'Da', sched: 'day', target: 1, created: '2026-01-01' }],
+    lists: [{ id: 'l1', name: 'L' }],
+    todos: [{ id: 't1', listId: 'l1', title: 'Da' }],
+    plans: [
+      { id: 'p1', kind: 'habit', refId: 'h1', date: MON, time: '07:00' },
+      { id: 'p2', kind: 'habit', refId: 'weg', date: MON, time: '08:00' },
+      { id: 'p3', kind: 'todo', refId: 'weg', date: MON, time: '09:00' },
+      { id: 'p4', kind: 'unsinn', refId: 't1', date: MON },
+      { id: 'p5', kind: 'todo', refId: 't1', date: 'kaputt' },
+      { id: 'p6', kind: 'todo', refId: 't1', date: MON, time: '99:99' },
+      null,
+    ],
+  });
+  assert.deepEqual(titelAm(MON), ['07:00 Da', '09:00 Da'],
+    'Verweise ins Leere weg, kaputte Uhrzeit auf 09:00 gesetzt');
+});
+
+test('Planung übersteht Sichern und Laden', () => {
+  const { h } = planSetup();
+  S.addPlan({ kind: 'habit', refId: h.id, date: MON, time: '07:00', minutes: 45, repeat: true });
+  const json = S.exportJSON();
+  S._setData({});
+  assert.equal(S.hasPlanOn(MON), false);
+  S.importJSON(json);
+  const [e] = S.planOn(MON);
+  assert.equal(e.plan.time, '07:00');
+  assert.equal(e.plan.minutes, 45);
+  assert.equal(e.plan.repeat, true);
+});
+
 console.log('\nPapierkorb');
 
 test('gelöschtes Habit landet im Papierkorb und kommt mit Verlauf zurück', () => {

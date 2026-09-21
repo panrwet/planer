@@ -573,18 +573,22 @@ export function openTodoEditor(listId, id, afterSave) {
     onConfirm(body) {
       const fields = collect();
       if (!fields) return false;
+      let saved;
       if (existing) {
         S.updateTodo(existing.id, fields);
+        saved = S.todo(existing.id);
       } else {
-        const created = S.addTodo(listId, fields);
+        saved = S.addTodo(listId, fields);
         // Beim Anlegen gesammelte Unteraufgaben jetzt anhängen
         for (const p of body._pendingSubs || []) {
-          S.addTodo(listId, { title: p.title, done: p.done, parent: created.id });
+          S.addTodo(listId, { title: p.title, done: p.done, parent: saved.id });
         }
       }
       haptic(12);
       renderTodos(listId);
-      afterSave?.();
+      // Die gesicherte Aufgabe mitgeben – genau wie openHabitEditor. Ohne das
+      // weiß der Aufrufer nicht, was er gerade angelegt hat.
+      afterSave?.(saved);
     },
   });
 }

@@ -258,7 +258,11 @@ export function stepper(value, { min = 1, max = 9999, step = 1, onInput } = {}) 
   input.addEventListener('change', () => write(read()));
   write(value);
 
-  return { node: el('div', { class: 'stepper' }, [minus, input, plus]), get value() { return read(); } };
+  return {
+    node: el('div', { class: 'stepper' }, [minus, input, plus]),
+    get value() { return read(); },
+    set: write,          // von außen setzen, z. B. über Schnellwahl-Chips
+  };
 }
 
 /** Chip-Gruppe. `multi` erlaubt Mehrfachauswahl (Wochentage).

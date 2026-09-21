@@ -730,6 +730,324 @@ await step('Suche findet trotz Tippfehler und markiert die Stelle', async () => 
 });
 
 /* ========================================================================== */
+group('Kalender');
+
+/** Setzt Planung über den Store und öffnet den Kalender. */
+async function seedPlan() {
+  await seed();
+  await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const t = S.today();
+    const add = (k, n) => { const d = new Date(`${k}T12:00:00`); d.setDate(d.getDate() + n);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    const wasser = S.habits().find(h => h.name === 'Wasser trinken');   // täglich
+    const fenster = S.habits().find(h => h.name === 'Fenster putzen');  // monatlich
+    const milch = S.getData().todos.find(x => x.title === 'Milch');
+    S.addPlan({ kind: 'habit', refId: wasser.id, date: t, time: '07:00', minutes: 60 });
+    S.addPlan({ kind: 'todo', refId: milch.id, date: t, time: '07:30', minutes: 30 });
+    S.addPlan({ kind: 'habit', refId: fenster.id, date: add(t, 2), time: '15:00' });
+    window.__t = t;
+  });
+  await page.locator('.tab[data-goto=calendar]').tap();
+  await wait(450);
+}
+
+await step('vierter Reiter rechts neben der Startseite', async () => {
+  const reiter = await page.locator('#tabbar .tab').evaluateAll(
+    ns => ns.map(n => [n.dataset.goto, n.textContent.trim()]));
+  if (JSON.stringify(reiter) !== JSON.stringify(
+      [['home', 'Start'], ['calendar', 'Kalender'], ['habits', 'Habits'], ['todos', 'Todos']])) {
+    throw new Error(JSON.stringify(reiter));
+  }
+});
+
+await step('Monatsraster mit Wochentagen, heute im Kreis', async () => {
+  await seedPlan();
+  if (!await page.locator('#screen-calendar').isVisible()) throw new Error('nicht sichtbar');
+  // innerText liefert, was zu sehen ist – das Stylesheet setzt die Kürzel in
+  // Großbuchstaben. Verglichen wird deshalb ohne Rücksicht auf Groß/Klein.
+  const tage = await page.locator('.cal-weekdays span').allInnerTexts();
+  if (tage.join('').toLowerCase() !== 'modimidofrsaso') throw new Error(tage.join(' '));
+  const zellen = await page.locator('.cal-day').count();
+  if (zellen % 7 || zellen < 28 || zellen > 42) throw new Error(`${zellen} Zellen`);
+  if (await page.locator('.cal-day.today').count() !== 1) throw new Error('heute nicht eindeutig');
+});
+
+await step('Raster läuft lückenlos durch, auch über die Monatsgrenze', async () => {
+  // Die nachlaufenden Tage zählten einmal 3, 4, 5, 6 statt 1, 2, 3, 4.
+  const keys = await page.locator('.cal-day').evaluateAll(ns => ns.map(n => n.dataset.key));
+  const tag = (k) => new Date(`${k}T12:00:00`).getTime();
+  for (let i = 1; i < keys.length; i++) {
+    const diff = Math.round((tag(keys[i]) - tag(keys[i - 1])) / 86400000);
+    if (diff !== 1) throw new Error(`${keys[i - 1]} → ${keys[i]} sind ${diff} Tage`);
+  }
+  const ersterWochentag = await page.evaluate(k => new Date(`${k}T12:00:00`).getDay(), keys[0]);
+  if (ersterWochentag !== 1) throw new Error('beginnt nicht an einem Montag');
+});
+
+await step('Punkte nur an Tagen mit Planung', async () => {
+  const gesetzt = await page.locator('.cal-day').evaluateAll(
+    ns => ns.filter(n => n.querySelector('.cal-dot.on')).map(n => n.dataset.key));
+  const erwartet = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return [...document.querySelectorAll('.cal-day')].map(n => n.dataset.key).filter(k => S.hasPlanOn(k));
+  });
+  if (JSON.stringify(gesetzt) !== JSON.stringify(erwartet)) {
+    throw new Error(`${gesetzt.join(',')} statt ${erwartet.join(',')}`);
+  }
+  if (!gesetzt.length) throw new Error('gar keine Punkte');
+});
+
+await step('Monatswechsel und Sprung zu heute', async () => {
+  const titel = () => page.locator('#calendar-title').innerText();
+  const start = await titel();
+  await page.locator('#calendar-next').tap();
+  await wait(320);
+  if (await titel() === start) throw new Error('Monat unverändert');
+  if (await page.locator('#calendar-today').isHidden()) throw new Error('Heute-Knopf fehlt im Fremdmonat');
+  await page.locator('#calendar-prev').tap();
+  await wait(320);
+  if (await titel() !== start) throw new Error(`zurück ergab ${await titel()}`);
+  if (await page.locator('#calendar-today').isVisible()) throw new Error('Heute-Knopf steht im eigenen Monat');
+});
+
+/* ========================================================================== */
+group('Tagesplan');
+
+await step('Tag öffnen, Stundenraster steht', async () => {
+  await seedPlan();
+  await page.locator('.cal-day.today').tap();
+  await wait(650);
+  if (!await page.locator('#screen-day').isVisible()) throw new Error('nicht sichtbar');
+  if (await page.locator('.day-hour').count() !== 24) throw new Error('nicht 24 Stunden');
+  const beschriftung = await page.locator('.day-hour-label').first().innerText();
+  if (beschriftung !== '00:00') throw new Error(beschriftung);
+});
+
+await step('Blöcke sitzen an ihrer Uhrzeit und verdecken sie nicht', async () => {
+  const b = await page.evaluate(() => {
+    const blocks = [...document.querySelectorAll('.day-block')];
+    const labelRechts = Math.max(...[...document.querySelectorAll('.day-hour-label')]
+      .map(n => n.getBoundingClientRect().right));
+    return blocks.map(n => ({
+      titel: n.querySelector('.day-block-name').textContent,
+      top: parseFloat(n.style.top),
+      hoehe: parseFloat(n.style.height),
+      links: n.getBoundingClientRect().left,
+      labelRechts,
+    }));
+  });
+  if (b.length !== 2) throw new Error(`${b.length} Blöcke`);
+  const wasser = b.find(x => /Wasser/.test(x.titel));
+  if (wasser.top !== 7 * 80) throw new Error(`07:00 liegt bei ${wasser.top}px statt ${7 * 80}px`);
+  if (wasser.hoehe < 75) throw new Error(`60 Minuten sind nur ${wasser.hoehe}px hoch`);
+  for (const x of b) {
+    if (x.links < x.labelRechts) throw new Error(`„${x.titel}" liegt über den Uhrzeiten`);
+  }
+});
+
+await step('überlappende Einträge stehen nebeneinander', async () => {
+  // Milch 07:30–08:00 überlappt Wasser 07:00–08:00
+  const breiten = await page.locator('.day-block').evaluateAll(
+    ns => ns.map(n => ({ t: n.querySelector('.day-block-name').textContent, w: Math.round(n.getBoundingClientRect().width) })));
+  if (breiten.some(x => x.w > 200)) throw new Error(`überlappt, aber volle Breite: ${JSON.stringify(breiten)}`);
+  const linke = await page.locator('.day-block').evaluateAll(ns => ns.map(n => Math.round(n.getBoundingClientRect().left)));
+  if (new Set(linke).size !== 2) throw new Error('beide in derselben Spalte');
+});
+
+await step('der Plan springt zur ersten Uhrzeit, nicht auf Mitternacht', async () => {
+  const oben = await page.evaluate(() => document.querySelector('#day-scroll').scrollTop);
+  if (oben < 300) throw new Error(`nur ${oben}px gescrollt – steht noch bei 00:00`);
+});
+
+await step('Abhaken im Plan wirkt und baut den Block nicht neu', async () => {
+  const vorher = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const h = S.habits().find(x => x.name === 'Wasser trinken');
+    const node = [...document.querySelectorAll('.day-block')].find(n => /Wasser/.test(n.textContent));
+    node.dataset.probe = 'ja';
+    node.querySelector('.check').dataset.probe = 'ja';
+    return { wert: S.valueOn(h.id, S.today()), ring: node.querySelector('.prog').getAttribute('stroke-dashoffset') };
+  });
+  await page.locator('.day-block[data-probe] .check').tap();
+  await wait(120);
+  const nachher = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const h = S.habits().find(x => x.name === 'Wasser trinken');
+    const node = document.querySelector('.day-block[data-probe]');
+    return {
+      wert: S.valueOn(h.id, S.today()),
+      derselbeBlock: !!node,
+      derselbeKnopf: !!node?.querySelector('.check[data-probe]'),
+      ring: node?.querySelector('.prog').getAttribute('stroke-dashoffset'),
+    };
+  });
+  if (nachher.wert <= vorher.wert) throw new Error(`Wert ${vorher.wert} → ${nachher.wert}`);
+  if (!nachher.derselbeBlock) throw new Error('Block wurde ersetzt');
+  if (!nachher.derselbeKnopf) throw new Error('Knopf wurde ersetzt – der Ring kann nicht laufen');
+  if (nachher.ring === vorher.ring) throw new Error('Fortschritt unverändert');
+});
+
+await step('Kopfzeile zählt beim Abhaken mit', async () => {
+  const text = await page.locator('#day-subtitle').innerText();
+  if (!/Eintr/.test(text)) throw new Error(text);
+  // Beide erledigen, dann muss es dastehen
+  await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const h = S.habits().find(x => x.name === 'Wasser trinken');
+    S.setValue(h.id, S.today(), h.target);
+  });
+  await page.locator('.day-block').filter({ hasText: 'Milch' }).locator('.check').tap();
+  await wait(250);
+  if (!/alles erledigt/.test(await page.locator('#day-subtitle').innerText())) {
+    throw new Error(await page.locator('#day-subtitle').innerText());
+  }
+});
+
+/* ========================================================================== */
+group('Einplanen');
+
+/** Tagesplan von heute öffnen und das Auswahl-Sheet aufziehen. Jeder Schritt
+    macht das selbst: clearOverlays() schließt nach jedem Schritt alles, was
+    offen ist – ein Schritt, der auf dem Sheet des vorigen aufbaut, läuft
+    zwangsläufig in eine Zeitüberschreitung. */
+async function openPicker() {
+  await clearOverlays();          // ein offenes Sheet fängt den Tipp sonst ab
+  await page.locator('.tab[data-goto=calendar]').tap();
+  await wait(420);
+  await page.locator('.cal-day.today').tap();
+  await wait(620);
+  await page.locator('#day-add').tap();
+  await wait(520);
+}
+
+await step('Auswahl bietet genau die zwei Bereiche', async () => {
+  await seedPlan();
+  await openPicker();
+  const reiter = await page.locator('.sheet-body .segmented button').allInnerTexts();
+  if (JSON.stringify(reiter) !== JSON.stringify(['Habits', 'Aufgaben'])) throw new Error(reiter.join(' '));
+  if (!await page.locator('.pick-list .row').count()) throw new Error('keine Habits zur Auswahl');
+  await page.locator('.sheet-body .segmented button', { hasText: 'Aufgaben' }).tap();
+  await wait(320);
+  if (!await page.locator('.pick-list .row').count()) throw new Error('keine Aufgaben zur Auswahl');
+  if (!/Neue Aufgabe/.test(await page.locator('.sheet-body .btn.secondary').innerText())) {
+    throw new Error('Knopf wechselt nicht mit');
+  }
+});
+
+await step('Auswahl verträgt Tippfehler wie die Suche', async () => {
+  await openPicker();
+  await page.locator('.sheet-body input[type=search]').fill('Vitmine');
+  await wait(450);
+  const treffer = await page.locator('.pick-list .row-title').allInnerTexts();
+  if (!treffer.includes('Vitamine')) throw new Error(treffer.join(', ') || 'nichts');
+});
+
+await step('einplanen mit Uhrzeit, Dauer und dauerhaft', async () => {
+  await openPicker();
+  await page.locator('.pick-list .row', { hasText: 'Laufen' }).tap();
+  await wait(560);
+  const felder = (await page.locator('.sheet-body .field-label').allInnerTexts()).map(t => t.toLowerCase());
+  if (JSON.stringify(felder) !== JSON.stringify(['uhrzeit', 'dauer in minuten', 'dauerhaft einplanen'])) {
+    throw new Error(felder.join(' > '));
+  }
+  await page.locator('.sheet-body input[type=time]').fill('06:15');
+  await page.locator('.sheet-body .chip', { hasText: '45 min' }).tap();
+  await wait(220);
+  if (!/Bis 07:00/.test(await page.locator('.sheet-body .field-hint').first().innerText())) {
+    throw new Error(await page.locator('.sheet-body .field-hint').first().innerText());
+  }
+  await page.locator('.sheet-body .switch').tap();
+  await wait(220);
+  await page.locator('.sheet-head button.strong').tap();
+  await wait(750);
+
+  const e = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    return S.planOn(S.today()).map(x => `${x.plan.time}/${x.plan.minutes}${x.plan.repeat ? '/dauerhaft' : ''} ${x.title}`);
+  });
+  if (!e.includes('06:15/45/dauerhaft Laufen')) throw new Error(e.join(' · '));
+  if (!await page.locator('.day-block').filter({ hasText: 'Laufen' }).count()) throw new Error('kein Block');
+});
+
+await step('dauerhaft folgt dem Rhythmus des Habits', async () => {
+  // Laufen läuft an Mo/Mi/Fr (sched 'days'). Ein dauerhafter Eintrag darf
+  // deshalb nur an diesen Tagen im Plan stehen.
+  const wo = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const add = (k, n) => { const d = new Date(`${k}T12:00:00`); d.setDate(d.getDate() + n);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    const t = S.today();
+    const tage = S.habits().find(h => h.name === 'Laufen').days;
+    const out = [];
+    for (let n = 0; n <= 13; n++) {
+      const k = add(t, n);
+      out.push({
+        k,
+        dran: tage.includes(new Date(`${k}T12:00:00`).getDay()),
+        geplant: S.planOn(k).some(x => x.title === 'Laufen'),
+      });
+    }
+    return out;
+  });
+  const falsch = wo.filter(x => x.dran !== x.geplant);
+  if (falsch.length) throw new Error(`folgt dem Rhythmus nicht: ${JSON.stringify(falsch.slice(0, 4))}`);
+  if (!wo.some(x => x.geplant)) throw new Error('nirgends geplant');
+  if (!wo.some(x => !x.geplant)) throw new Error('überall geplant – der Rhythmus greift nicht');
+});
+
+await step('einzelnen Tag aus der Reihe nehmen lässt die Reihe stehen', async () => {
+  await page.locator('.tab[data-goto=calendar]').tap();
+  await wait(420);
+  await page.locator('.cal-day.today').tap();
+  await wait(620);
+  await page.locator('.day-block').filter({ hasText: 'Laufen' }).first().tap();
+  await wait(560);
+  await page.locator('.sheet-body .btn.danger').tap();
+  await wait(470);
+  const wahl = await page.locator('.sheet-body .btn').allInnerTexts();
+  if (wahl.length !== 2) throw new Error(`Rückfrage bietet ${wahl.join(' / ')}`);
+  await page.locator('.sheet-body .btn.secondary', { hasText: 'diesem Tag' }).tap();
+  await wait(650);
+
+  const r = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const add = (k, n) => { const d = new Date(`${k}T12:00:00`); d.setDate(d.getDate() + n);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    const t = S.today();
+    const tage = S.habits().find(h => h.name === 'Laufen').days;
+    const hat = (k) => S.planOn(k).some(x => x.title === 'Laufen');
+    // Den nächsten Tag suchen, an dem Laufen überhaupt dran wäre
+    let n = 1;
+    while (n < 14 && !tage.includes(new Date(`${add(t, n)}T12:00:00`).getDay())) n++;
+    return { heute: hat(t), spaeter: hat(add(t, n)) };
+  });
+  if (r.heute) throw new Error('heute noch geplant');
+  if (!r.spaeter) throw new Error('die ganze Reihe ist weg');
+});
+
+await step('Standarddauer aus den Einstellungen wird übernommen', async () => {
+  await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    S.setSetting('planMinutesHabit', 15);
+    S.setSetting('planMinutesTodo', 60);
+  });
+  await openPicker();
+  await page.locator('.pick-list .row').first().tap();
+  await wait(520);
+  const habitDauer = await page.locator('.sheet-body .stepper input').inputValue();
+  if (habitDauer !== '15') throw new Error(`Habit: ${habitDauer} statt 15`);
+
+  await openPicker();
+  await page.locator('.sheet-body .segmented button', { hasText: 'Aufgaben' }).tap();
+  await wait(340);
+  await page.locator('.pick-list .row').first().tap();
+  await wait(520);
+  const todoDauer = await page.locator('.sheet-body .stepper input').inputValue();
+  if (todoDauer !== '60') throw new Error(`Aufgabe: ${todoDauer} statt 60`);
+});
+
+/* ========================================================================== */
 group('Datenerhalt');
 
 await step('Neustart verändert nichts', async () => {
@@ -795,11 +1113,19 @@ await step('kein Bildschirm scrollt seitlich', async () => {
     });
     bad.push(...r.map(x => `${label}/${x}`));
   };
-  for (const tab of ['home', 'habits', 'todos']) {
+  for (const tab of ['home', 'calendar', 'habits', 'todos']) {
     await page.locator(`.tab[data-goto=${tab}]`).tap();
     await wait(320);
     await scan(tab);
   }
+  // Tagesplan hinter dem Kalender
+  await page.locator('.tab[data-goto=calendar]').tap();
+  await wait(300);
+  await page.locator('.cal-day.today').tap();
+  await wait(600);
+  await scan('tagesplan');
+  await page.locator('#day-back').tap();
+  await wait(320);
   await page.locator('.tab[data-goto=habits]').tap();
   await wait(250);
   await page.locator('#habit-groups .row').first().tap();
@@ -812,12 +1138,19 @@ await step('kein Bildschirm scrollt seitlich', async () => {
 
 await step('kein "null"/"undefined"/"NaN" im Text', async () => {
   const found = [];
-  for (const tab of ['home', 'habits', 'todos']) {
+  const pruefe = (label, txt) => {
+    for (const bad of ['null', 'undefined', 'NaN', '[object']) if (txt.includes(bad)) found.push(`${label}: ${bad}`);
+  };
+  for (const tab of ['home', 'calendar', 'habits', 'todos']) {
     await page.locator(`.tab[data-goto=${tab}]`).tap();
     await wait(320);
-    const txt = await page.locator('.screen.active').innerText();
-    for (const bad of ['null', 'undefined', 'NaN', '[object']) if (txt.includes(bad)) found.push(`${tab}: ${bad}`);
+    pruefe(tab, await page.locator('.screen.active').innerText());
   }
+  await page.locator('.tab[data-goto=calendar]').tap();
+  await wait(300);
+  await page.locator('.cal-day.today').tap();
+  await wait(600);
+  pruefe('tagesplan', await page.locator('.screen.active').innerText());
   if (found.length) throw new Error(found.join(', '));
 });
 
@@ -887,11 +1220,65 @@ await step('dunkles Design auf allen Bildschirmen', async () => {
   await page.locator('#settings-back').tap();
   await wait(400);
   await shot('04-start-dunkel');
-  for (const tab of ['habits', 'todos']) {
+
+  /* Nicht nur Bildschirmfotos: Geprüft wird, dass jeder Bildschirm wirklich
+     dunkel gedeckt ist. Ein neuer Bildschirm, der seine Farben fest verdrahtet
+     statt die Tokens zu benutzen, fällt sonst erst dem Auge auf. */
+  const hell = [];
+  const messe = async (label) => {
+    const r = await page.evaluate(() => {
+      const schirm = document.querySelector('.screen.active');
+      /* Hintergründe aus color-mix() liefert der Browser als oklab() zurück,
+         nicht als rgb(). Ein Ausdruck, der einfach alle Ziffern einsammelt,
+         rechnet daraus Unsinn – jede Schreibweise braucht ihren eigenen Fall.
+         Herauskommt in allen Fällen ein Wert von 0 (schwarz) bis 1 (weiß). */
+      const helligkeit = (farbe) => {
+        if (!farbe) return null;
+        let m = farbe.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/);
+        if (m) {
+          if (m[4] !== undefined && Number(m[4]) === 0) return null;   // unsichtbar
+          const [r, g, b] = [m[1], m[2], m[3]].map(Number);
+          return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        }
+        m = farbe.match(/^oklab\(\s*([\d.]+)(%?)/);
+        if (m) return m[2] ? parseFloat(m[1]) / 100 : parseFloat(m[1]);
+        m = farbe.match(/^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+        if (m) {
+          const [r, g, b] = [m[1], m[2], m[3]].map(Number);
+          return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        }
+        return null;       // unbekannte Schreibweise – lieber nicht raten
+      };
+      const flaechen = [schirm, ...schirm.querySelectorAll('.row, .card, .home-card, .group-card, .day-block, .cal-day')]
+        .slice(0, 40)
+        .map(n => helligkeit(getComputedStyle(n).backgroundColor))
+        .filter(v => v !== null);
+      return {
+        hellsteFlaeche: flaechen.length ? Math.max(...flaechen) : 0,
+        text: helligkeit(getComputedStyle(schirm).color),
+        gemessen: flaechen.length,
+      };
+    });
+    if (!r.gemessen) hell.push(`${label}: keine Fläche messbar`);
+    if (r.hellsteFlaeche > 0.5) hell.push(`${label}: Fläche zu hell (${r.hellsteFlaeche.toFixed(2)})`);
+    if (r.text < 0.6) hell.push(`${label}: Text zu dunkel (${r.text.toFixed(2)})`);
+  };
+
+  await messe('start');
+  for (const tab of ['calendar', 'habits', 'todos']) {
     await page.locator(`.tab[data-goto=${tab}]`).tap();
     await wait(400);
+    await messe(tab);
     await shot(`05-${tab}-dunkel`);
   }
+  await page.locator('.tab[data-goto=calendar]').tap();
+  await wait(320);
+  await page.locator('.cal-day.today').tap();
+  await wait(620);
+  await messe('tagesplan');
+  await shot('05-tagesplan-dunkel');
+
+  if (hell.length) throw new Error(hell.join(' · '));
 });
 
 /* ========================================================================== */

@@ -22,6 +22,10 @@ export const SETTINGS_INDEX = [
     keywords: 'ausblenden ausgrauen verschwinden erledigt sichtbar' },
   { id: 'doneTodos', group: 'Todos', title: 'Erledigte Aufgaben',
     keywords: 'ausblenden anzeigen durchgestrichen erledigt' },
+  { id: 'planMinutesHabit', group: 'Planung', title: 'Standarddauer für Habits',
+    keywords: 'kalender einplanen dauer minuten block termin länge' },
+  { id: 'planMinutesTodo', group: 'Planung', title: 'Standarddauer für Aufgaben',
+    keywords: 'kalender einplanen dauer minuten block termin länge todo' },
   { id: 'rowSize', group: 'Darstellung', title: 'Größe der Zeilen',
     keywords: 'klein mittel groß höhe kompakt schrift' },
   { id: 'saturation', group: 'Darstellung', title: 'Farbstärke',
@@ -80,6 +84,27 @@ export function renderSettings() {
         control: segmented(
           [{ id: 'hide', label: 'Ausblenden' }, { id: 'show', label: 'Anzeigen' }],
           set.doneTodos, v => put('doneTodos', v),
+        ),
+      }),
+    ]),
+
+    group('Planung', [
+      settingRow({
+        id: 'planMinutesHabit',
+        title: 'Standarddauer für Habits',
+        desc: 'Gilt, wenn du ein Habit in den Kalender einplanst. Je Eintrag änderbar.',
+        control: segmented(
+          [15, 30, 45, 60].map(m => ({ id: String(m), label: `${m}` })),
+          String(set.planMinutesHabit), v => put('planMinutesHabit', Number(v)),
+        ),
+      }),
+      settingRow({
+        id: 'planMinutesTodo',
+        title: 'Standarddauer für Aufgaben',
+        desc: 'Gilt, wenn du eine Aufgabe in den Kalender einplanst. Je Eintrag änderbar.',
+        control: segmented(
+          [15, 30, 45, 60].map(m => ({ id: String(m), label: `${m}` })),
+          String(set.planMinutesTodo), v => put('planMinutesTodo', Number(v)),
         ),
       }),
     ]),

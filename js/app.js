@@ -10,6 +10,8 @@ import {
 } from './todos.js';
 import { renderSettings, renderTrash, bindApply, bindSettingsNavigate, flashSetting } from './settings.js';
 import { renderHome, bindNavigate as bindHomeNav } from './home.js';
+import { renderCalendar, renderDayPlan, setMonthOf, setDay, currentDay,
+         stepMonth, stepDay, jumpToToday, bindOpenDay, openPlanPicker } from './calendar.js';
 import { renderSearch, clearSearch, bindNavigate as bindSearchNav } from './search.js';
 import { warmUp as warmEmoji } from './emoji.js';
 
@@ -47,6 +49,8 @@ darkQuery.addEventListener('change', () => {
 const SCREENS = {
   home: '#screen-home',
   search: '#screen-search',
+  calendar: '#screen-calendar',
+  day: '#screen-day',
   habits: '#screen-habits',
   detail: '#screen-detail',
   todos: '#screen-todos',
@@ -57,6 +61,8 @@ const SCREENS = {
 function show(screen, arg) {
   if (screen === 'detail') view.habitId = arg;
   if (screen === 'settings') view.settingId = arg || null;
+  if (screen === 'calendar') setMonthOf(arg || currentDay() || S.today());
+  if (screen === 'day') setDay(arg || currentDay() || S.today());
   // Von der Startseite aus kann eine Häufigkeits-Gruppe gezielt geöffnet werden
   if (screen === 'habits' && arg) S.setGroupOpen(arg, true);
   if (screen === 'todos') {
@@ -78,14 +84,19 @@ function show(screen, arg) {
   // Die Listen-Leiste gehört nur zum Todos-Bereich.
   $('#listbar').hidden = screen !== 'todos';
 
-  renderCurrent();
+  /* Zurücksetzen vor dem Zeichnen, nicht danach: Ein Bildschirm, der beim
+     Aufbau selbst eine sinnvolle Stelle anspringt – der Tagesplan geht zur
+     ersten Uhrzeit –, wurde sonst gleich wieder nach oben geworfen. */
   $(SCREENS[screen]).querySelector('.scroll')?.scrollTo({ top: 0 });
+  renderCurrent();
 }
 
 function renderCurrent() {
   switch (view.screen) {
     case 'home': renderHome(); break;
     case 'search': renderSearch(); break;
+    case 'calendar': renderCalendar(); break;
+    case 'day': renderDayPlan(); break;
     case 'habits': renderHabits(); break;
     case 'detail':
       if (!S.habit(view.habitId)) { show('habits'); return; }
@@ -136,6 +147,17 @@ $('#search-back').addEventListener('click', () => show('home'));
 $('#search-clear').addEventListener('click', clearSearch);
 $('#settings-back').addEventListener('click', () => show('home'));
 $('#trash-back').addEventListener('click', () => show('settings'));
+
+/* ---------- Kalender ---------- */
+$('#calendar-prev').addEventListener('click', () => stepMonth(-1));
+$('#calendar-next').addEventListener('click', () => stepMonth(1));
+$('#calendar-today').addEventListener('click', () => { jumpToToday(); show('day', S.today()); });
+bindOpenDay((key) => show('day', key));
+
+$('#day-back').addEventListener('click', () => show('calendar', currentDay()));
+$('#day-prev').addEventListener('click', () => stepDay(-1));
+$('#day-next').addEventListener('click', () => stepDay(1));
+$('#day-add').addEventListener('click', () => openPlanPicker());
 
 $('#habit-add').addEventListener('click', () => openHabitEditor(null, () => renderHabits()));
 

@@ -4,7 +4,7 @@
 import { uid, todayKey, addDays, addMonths, weekdayOf, weekStart, monthStart, monthDays, clamp } from './util.js';
 
 const KEY = 'planer.v1';
-const SCHEMA = 5;
+const SCHEMA = 6;
 
 /* Papierkorb: Löschen ist umkehrbar, aber nicht ewig. Nach dieser Frist räumt
    die App von selbst auf, damit der Speicher nicht still zuwächst. */
@@ -77,10 +77,12 @@ export const DEFAULTS = {
   groups: {},           // Häufigkeits-Gruppen: id -> aufgeklappt (true/false)
   recentEmoji: [],      // zuletzt gewählte Emojis, neuestes zuerst
   saturation: 'normal', // 'off' | 'soft' | 'normal' | 'strong' – wie kräftig getönt wird
+  planMinutesHabit: 30, // Standarddauer eines eingeplanten Habits
+  planMinutesTodo: 30,  // Standarddauer einer eingeplanten Aufgabe
 };
 
 function emptyData() {
-  return { v: SCHEMA, settings: { ...DEFAULTS }, habits: [], log: {}, lists: [], todos: [], trash: [] };
+  return { v: SCHEMA, settings: { ...DEFAULTS }, habits: [], log: {}, lists: [], todos: [], plans: [], trash: [] };
 }
 
 /* ---------- Persistenz ---------- */
@@ -188,6 +190,7 @@ function migrate(d) {
   out.lists = sanitizeLists(d.lists);
   out.todos = sanitizeTodos(d.todos, out.lists);
   out.log = sanitizeLog(d.log, out.habits);
+  out.plans = sanitizePlans(d.plans, out.habits, out.todos);
   out.trash = sanitizeTrash(d.trash);
 
   out.settings.recentEmoji = Array.isArray(d.settings?.recentEmoji) ? [...d.settings.recentEmoji] : [];
@@ -334,12 +337,14 @@ function sanitizeTrash(input) {
     if (seen.has(id)) return [];
     seen.add(id);
     const p = e.payload && typeof e.payload === 'object' ? e.payload : {};
+    const plans = Array.isArray(p.plans) ? p.plans.filter(x => x && typeof x === 'object') : [];
     const payload =
       e.kind === 'habit' ? { habit: p.habit && typeof p.habit === 'object' ? p.habit : null,
-                             log: p.log && typeof p.log === 'object' ? p.log : {} }
+                             log: p.log && typeof p.log === 'object' ? p.log : {}, plans }
       : e.kind === 'list' ? { list: p.list && typeof p.list === 'object' ? p.list : null,
-                              todos: Array.isArray(p.todos) ? p.todos.filter(t => t && typeof t === 'object') : [] }
-      : { todos: Array.isArray(p.todos) ? p.todos.filter(t => t && typeof t === 'object') : [] };
+                              todos: Array.isArray(p.todos) ? p.todos.filter(t => t && typeof t === 'object') : [],
+                              plans }
+      : { todos: Array.isArray(p.todos) ? p.todos.filter(t => t && typeof t === 'object') : [], plans };
 
     if (e.kind === 'habit' && !payload.habit) return [];
     if (e.kind === 'list' && !payload.list) return [];
@@ -527,13 +532,15 @@ export function deleteHabit(id) {
   if (!h) return;
   const log = data.log[id] || {};
   const days = Object.keys(log).length;
+  const plans = plansFor('habit', id).map(p => ({ ...p }));
   toTrash({
     kind: 'habit', title: h.name, emoji: h.emoji, color: h.color,
     detail: days ? `${days} ${days === 1 ? 'erfasster Tag' : 'erfasste Tage'}` : 'ohne Verlauf',
-    payload: { habit: { ...h }, log: { ...log } },
+    payload: { habit: { ...h }, log: { ...log }, plans },
   });
   data.habits = data.habits.filter(x => x.id !== id);
   delete data.log[id];
+  data.plans = data.plans.filter(p => !(p.kind === 'habit' && p.refId === id));
   save();
 }
 
@@ -774,13 +781,16 @@ export function deleteList(id) {
   const l = list(id);
   if (!l) return;
   const mine = data.todos.filter(t => t.listId === id);
+  const mineIds = new Set(mine.map(t => t.id));
+  const plans = data.plans.filter(p => p.kind === 'todo' && mineIds.has(p.refId)).map(p => ({ ...p }));
   toTrash({
     kind: 'list', title: l.name, emoji: l.emoji, color: l.color,
     detail: mine.length ? `${mine.length} ${mine.length === 1 ? 'Aufgabe' : 'Aufgaben'}` : 'leer',
-    payload: { list: { ...l }, todos: mine.map(t => ({ ...t })) },
+    payload: { list: { ...l }, todos: mine.map(t => ({ ...t })), plans },
   });
   data.lists = data.lists.filter(x => x.id !== id);
   data.todos = data.todos.filter(t => t.listId !== id);
+  data.plans = data.plans.filter(p => !(p.kind === 'todo' && mineIds.has(p.refId)));
   if (data.settings.lastListId === id) data.settings.lastListId = data.lists[0]?.id || '';
   save();
 }
@@ -872,12 +882,14 @@ export function deleteTodo(id) {
   // Die Unteraufgaben kommen mit – sonst hinge die Hälfte beim Wiederherstellen
   // im Leeren. Die Reihenfolge bleibt erhalten, Eltern vor Kindern.
   const gone = data.todos.filter(x => ids.has(x.id)).map(x => ({ ...x }));
+  const plans = data.plans.filter(p => p.kind === 'todo' && ids.has(p.refId)).map(p => ({ ...p }));
   toTrash({
     kind: 'todo', title: t.title, color: t.color,
     detail: kids.length ? `mit ${kids.length} ${kids.length === 1 ? 'Unteraufgabe' : 'Unteraufgaben'}` : '',
-    payload: { todos: gone },
+    payload: { todos: gone, plans },
   });
   data.todos = data.todos.filter(x => !ids.has(x.id));
+  data.plans = data.plans.filter(p => !(p.kind === 'todo' && ids.has(p.refId)));
   save();
 }
 
@@ -1067,6 +1079,196 @@ export function overview(ref = today()) {
 }
 
 /* ==========================================================================
+   Planung
+   Ein Plan-Eintrag legt fest, wann etwas getan werden soll – nicht, wann es
+   fertig sein muss. Die Fälligkeit einer Aufgabe bleibt davon unberührt:
+   „fällig Freitag, eingeplant Dienstag 14 Uhr" ist der Normalfall.
+
+   Von allein erscheint nichts. Ein Eintrag entsteht nur durch Auswahl, und er
+   gilt für einen Tag – es sei denn, er ist als `repeat` dauerhaft angelegt:
+
+     Habit     an jedem Tag, an dem das Habit ohnehin dran ist (sein Rhythmus)
+     Aufgabe   an jedem Tag, bis sie abgehakt ist
+
+   Beide beginnen am Tag des Eintrags; frühere Tage bleiben leer. Einzelne Tage
+   lassen sich über `skip` aus einer Serie nehmen, ohne sie ganz zu löschen.
+   ========================================================================== */
+
+const MINUTES_MIN = 5;
+const MINUTES_MAX = 24 * 60;
+
+function sanitizePlans(input, habits, todos) {
+  if (!Array.isArray(input)) return [];
+  const habitIds = new Set(habits.map(h => h.id));
+  const todoIds = new Set(todos.map(t => t.id));
+  const seen = new Set();
+
+  return input.flatMap((p) => {
+    if (!p || typeof p !== 'object') return [];
+    if (p.kind !== 'habit' && p.kind !== 'todo') return [];
+    // Ein Eintrag ohne sein Ziel ist wertlos – Habit oder Aufgabe ist weg.
+    const known = p.kind === 'habit' ? habitIds : todoIds;
+    if (!known.has(p.refId)) return [];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date)) return [];
+
+    const id = str(p.id) || uid();
+    if (seen.has(id)) return [];
+    seen.add(id);
+
+    return [{
+      id,
+      kind: p.kind,
+      refId: p.refId,
+      date: p.date,
+      time: /^([01]\d|2[0-3]):[0-5]\d$/.test(p.time) ? p.time : '09:00',
+      minutes: clamp(Number.isFinite(p.minutes) ? Math.round(p.minutes) : 30, MINUTES_MIN, MINUTES_MAX),
+      repeat: !!p.repeat,
+      skip: Array.isArray(p.skip) ? p.skip.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [],
+    }];
+  });
+}
+
+/** Minuten seit Mitternacht – zum Sortieren und Platzieren. */
+export function minutesOf(time) {
+  const [h, m] = String(time).split(':').map(Number);
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+}
+
+/** Minuten seit Mitternacht als "HH:MM". */
+export function timeOf(minutes) {
+  const m = clamp(Math.round(minutes), 0, 24 * 60 - 1);
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/** Standarddauer für diese Art Eintrag, wie in den Einstellungen gewählt. */
+export function defaultMinutes(kind) {
+  const v = kind === 'habit' ? data.settings.planMinutesHabit : data.settings.planMinutesTodo;
+  return clamp(Number.isFinite(v) ? v : 30, MINUTES_MIN, MINUTES_MAX);
+}
+
+export function plan(id) {
+  return data.plans.find(p => p.id === id) || null;
+}
+
+export function addPlan({ kind, refId, date, time = '09:00', minutes, repeat = false }) {
+  const p = {
+    id: uid(),
+    kind,
+    refId,
+    date,
+    time,
+    minutes: clamp(minutes ?? defaultMinutes(kind), MINUTES_MIN, MINUTES_MAX),
+    repeat: !!repeat,
+    skip: [],
+  };
+  data.plans.push(p);
+  save();
+  return p;
+}
+
+export function updatePlan(id, fields) {
+  const p = plan(id);
+  if (!p) return null;
+  Object.assign(p, fields);
+  if (fields.minutes !== undefined) p.minutes = clamp(Math.round(p.minutes), MINUTES_MIN, MINUTES_MAX);
+  save();
+  return p;
+}
+
+export function deletePlan(id) {
+  const before = data.plans.length;
+  data.plans = data.plans.filter(p => p.id !== id);
+  if (data.plans.length !== before) save();
+}
+
+/** Nimmt einen einzelnen Tag aus einer Serie, ohne sie zu löschen. */
+export function skipPlanOn(id, date) {
+  const p = plan(id);
+  if (!p) return;
+  if (!p.repeat) { deletePlan(id); return; }
+  if (p.date === date) {
+    // Der erste Tag der Serie: Anfang nach vorn schieben, statt ihn zu merken.
+    p.date = addDays(date, 1);
+  } else if (!p.skip.includes(date)) {
+    p.skip.push(date);
+  }
+  save();
+}
+
+/** Gilt dieser Eintrag an diesem Tag? */
+function planAppliesOn(p, key) {
+  if (p.date === key) return true;
+  if (!p.repeat || key < p.date) return false;
+  if (p.skip.includes(key)) return false;
+
+  if (p.kind === 'habit') {
+    const h = habit(p.refId);
+    // Dem Rhythmus folgen: an einem freien Tag steht das Habit auch nicht im Plan.
+    return !!h && isActiveOn(h, key);
+  }
+  const t = todo(p.refId);
+  // Eine dauerhaft eingeplante Aufgabe kommt täglich wieder, bis sie erledigt ist.
+  return !!t && !t.done;
+}
+
+/**
+ * Was an diesem Tag geplant ist, nach Uhrzeit sortiert.
+ * Jeder Eintrag bringt sein Ziel gleich mit, damit die Ansicht nicht noch
+ * einmal nachschlagen muss.
+ * @returns {Array<{plan, kind, ref, title, emoji, color, start, end, done, dueNote}>}
+ */
+export function planOn(key) {
+  const out = [];
+  for (const p of data.plans) {
+    if (!planAppliesOn(p, key)) continue;
+    const ref = p.kind === 'habit' ? habit(p.refId) : todo(p.refId);
+    if (!ref) continue;
+
+    const start = minutesOf(p.time);
+    out.push({
+      plan: p,
+      kind: p.kind,
+      ref,
+      title: p.kind === 'habit' ? ref.name : ref.title,
+      emoji: p.kind === 'habit' ? ref.emoji : '',
+      color: p.kind === 'habit' ? ref.color : (ref.color || list(ref.listId)?.color || ''),
+      start,
+      end: Math.min(24 * 60, start + p.minutes),
+      done: p.kind === 'habit' ? isDoneOn(ref, key) : ref.done,
+      // Hinweis, wenn eine Aufgabe vor dem geplanten Tag fällig ist.
+      dueNote: p.kind === 'todo' && ref.due && ref.due < key ? ref.due : '',
+    });
+  }
+  return out.sort((a, b) => a.start - b.start || a.title.localeCompare(b.title, 'de'));
+}
+
+/** Ist an diesem Tag etwas geplant? Für die Punkte im Kalender. */
+export function hasPlanOn(key) {
+  return data.plans.some(p => planAppliesOn(p, key));
+}
+
+/**
+ * Tage des Monats mit Planung, als Menge von Tagesschlüsseln.
+ * Ein Durchlauf über die Einträge je Tag wäre bei einer Serie über Jahre
+ * unnötig teuer – der Kalender fragt einmal für den ganzen Monat.
+ */
+export function plannedDaysOfMonth(key) {
+  const out = new Set();
+  for (const d of monthDays(key)) if (hasPlanOn(d)) out.add(d);
+  return out;
+}
+
+/** Alle Einträge zu einem Habit bzw. einer Aufgabe – auch für den Papierkorb. */
+export function plansFor(kind, refId) {
+  return data.plans.filter(p => p.kind === kind && p.refId === refId);
+}
+
+/* Abgehakt wird im Plan mit demselben Knopf und derselben Wirkung wie in der
+   Liste: bump/unbump beim Habit, toggleTodo bei der Aufgabe. Eine eigene
+   Abhak-Logik für den Plan wäre genau die Art Abweichung, die sich später
+   auseinanderentwickelt. Der Plan braucht dafür keine eigene Funktion. */
+
+/* ==========================================================================
    Papierkorb
    Löschen ist nicht mehr endgültig: Was gelöscht wird, landet hier mit allem,
    was zum Wiederherstellen nötig ist, und verschwindet erst nach TRASH_DAYS.
@@ -1142,7 +1344,7 @@ export function restoreTrash(entryId) {
   return { ok: true, kind: e.kind, title: e.title, note };
 }
 
-function restoreHabit({ habit: h, log }) {
+function restoreHabit({ habit: h, log, plans = [] }) {
   const taken = new Set(data.habits.map(x => x.id));
   const id = taken.has(h.id) ? uid() : h.id;
   const nextOrder = data.habits.length ? Math.max(...data.habits.map(x => x.order ?? 0)) + 1 : 0;
@@ -1150,22 +1352,24 @@ function restoreHabit({ habit: h, log }) {
   const entries = sanitizeLog({ [id]: log }, [{ id }]);
   if (entries[id]) data.log[id] = { ...(data.log[id] || {}), ...entries[id] };
   data.habits = sanitizeHabits(data.habits);
+  putPlansBack(plans, new Map([[h.id, id]]));
   return id === h.id ? '' : 'Die Kennung war vergeben, das Habit hat eine neue bekommen.';
 }
 
-function restoreList({ list: l, todos }) {
+function restoreList({ list: l, todos, plans = [] }) {
   const taken = new Set(data.lists.map(x => x.id));
   const listId = taken.has(l.id) ? uid() : l.id;
   const nextOrder = data.lists.length ? Math.max(...data.lists.map(x => x.order ?? 0)) + 1 : 0;
   data.lists.push({ ...l, id: listId, order: nextOrder });
   data.lists = sanitizeLists(data.lists);
-  const changed = putTodosBack(todos, listId);
+  const { renamed, remap } = putTodosBack(todos, listId);
+  putPlansBack(plans, remap);
   return listId === l.id
-    ? (changed ? 'Einzelne Kennungen waren vergeben und wurden neu gesetzt.' : '')
+    ? (renamed ? 'Einzelne Kennungen waren vergeben und wurden neu gesetzt.' : '')
     : 'Die Kennung war vergeben, die Liste hat eine neue bekommen.';
 }
 
-function restoreTodos({ todos }) {
+function restoreTodos({ todos, plans = [] }) {
   const wanted = todos[0]?.listId;
   const notes = [];
   let listId = wanted;
@@ -1182,8 +1386,26 @@ function restoreTodos({ todos }) {
     }
   }
 
-  if (putTodosBack(todos, listId)) notes.push('Einzelne Kennungen waren vergeben und wurden neu gesetzt.');
+  const { renamed, remap } = putTodosBack(todos, listId);
+  putPlansBack(plans, remap);
+  if (renamed) notes.push('Einzelne Kennungen waren vergeben und wurden neu gesetzt.');
   return notes.join(' ');
+}
+
+/**
+ * Legt die Planung wieder an, die mit dem gelöschten Objekt weggefallen ist.
+ * `remap` bildet alte auf neue Kennungen ab – ohne das zeigten die Einträge
+ * ins Leere, sobald beim Wiederherstellen eine Kennung neu vergeben wurde.
+ */
+function putPlansBack(plans, remap) {
+  if (!plans?.length) return;
+  const taken = new Set(data.plans.map(p => p.id));
+  for (const p of plans) {
+    const refId = remap.get(p.refId) ?? p.refId;
+    data.plans.push({ ...p, id: taken.has(p.id) ? uid() : p.id, refId });
+    taken.add(p.id);
+  }
+  data.plans = sanitizePlans(data.plans, data.habits, data.todos);
 }
 
 /**
@@ -1191,7 +1413,9 @@ function restoreTodos({ todos }) {
  * vergeben – und die Eltern-Verweise innerhalb der Gruppe ziehen mit um.
  * Zeigt ein Verweis nach außen, wird die Aufgabe ausgerückt statt ins Leere zu
  * hängen.
- * @returns {boolean} ob Kennungen neu vergeben werden mussten
+ * @returns {{renamed: boolean, remap: Map<string,string>}} ob Kennungen neu
+ *   vergeben werden mussten, und die Zuordnung alt → neu (die Planung hängt
+ *   daran und würde sonst ins Leere zeigen)
  */
 function putTodosBack(todos, listId) {
   const taken = new Set(data.todos.map(t => t.id));
@@ -1219,7 +1443,7 @@ function putTodosBack(todos, listId) {
 
   data.todos = sanitizeTodos(data.todos, data.lists);
   normalizeOrder(listId);
-  return renamed;
+  return { renamed, remap };
 }
 
 /* ---------- Suche ---------- */
