@@ -45,6 +45,7 @@
   --safe-r: env(safe-area-inset-right, 0px);
   --tabbar-h: 54px;
   --listbar-h: 46px;
+  --editbar-h: 0px;     /* Höhe der Bearbeiten-Leiste; home.js misst sie */
 }
 
 /* Die vier Stufen der Sättigung. "Aus" lässt Emoji, Name und Ring die Farbe
@@ -1113,196 +1114,418 @@ body.is-dragging .scroll { overflow: hidden; }
 }
 
 /* ==========================================================================
-   Startseite
+   Startseite: Widget-Raster
+   Zwei Spalten, drei Größen. Klein belegt eine Spalte und ist quadratisch,
+   breit und groß belegen beide. Eine Rasterzeile enthält also entweder zwei
+   kleine oder ein breites – deshalb dürfen die Zellen sich in die Höhe
+   ziehen, ohne dass etwas verzerrt.
    ========================================================================== */
-.home-card { padding: 14px 16px; }
-.home-card > h3 { margin-bottom: 10px; }
-
-.home-hero { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
-.home-hero-num {
-  font-size: 30px; font-weight: 700;
-  letter-spacing: -.025em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.05;
-}
-.home-hero-of { font-size: 16px; font-weight: 600; color: var(--text-3); }
-.home-hero-txt { font-size: 13.5px; color: var(--text-3); font-weight: 550; }
-.home-hero-txt.good { color: var(--accent); }
-
-.home-bar {
-  height: 7px;
-  margin-top: 11px;
-  border-radius: 99px;
-  background: var(--surface-2);
-  overflow: hidden;
-}
-.home-bar-fill {
-  height: 100%;
-  border-radius: 99px;
-  background: var(--accent);
-  transition: width .35s cubic-bezier(.2, .8, .3, 1);
-}
-
-/* Ein Punkt je fälliges Habit – gefüllt heißt erledigt. */
-.home-dots { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 11px; }
-.home-dot {
-  width: 9px; height: 9px;
-  border-radius: 50%;
-  border: 1.5px solid var(--tint);
-  opacity: .55;
-}
-.home-dot.filled { background: var(--tint); opacity: 1; }
-
-.home-bucket {
-  display: flex; align-items: center; gap: 9px;
-  width: 100%;
-  padding: 9px 0;
-  text-align: left;
-  border-top: 1px solid var(--border);
-}
-.home-buckets > .home-bucket:first-child { border-top: 0; padding-top: 4px; }
-.home-bucket-label { flex: none; font-size: 14.5px; font-weight: 600; }
-.home-bucket-names {
-  flex: 1; min-width: 0;
-  font-size: 12.5px; color: var(--text-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.home-bucket-count {
-  flex: none;
-  min-width: 22px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 12.5px; font-weight: 700;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-.home-bucket.danger .home-bucket-label { color: var(--danger); }
-.home-bucket.danger .home-bucket-count { background: var(--danger-soft); color: var(--danger); }
-.home-bucket.accent .home-bucket-count { background: var(--accent-soft); color: var(--accent); }
-.home-bucket:active { opacity: .55; }
-
-.home-streak {
-  display: flex; align-items: center; gap: 10px;
-  width: 100%;
-  padding: 8px 0;
-  text-align: left;
-}
-.home-streak + .home-streak { border-top: 1px solid var(--border); }
-.home-streak-emoji {
-  flex: none;
-  width: 30px; height: 30px;
-  display: grid; place-items: center;
-  border-radius: 9px;
-  font-size: 16px;
-  background: color-mix(in oklab, var(--tint) var(--tint-chip), var(--surface));
-}
-.home-streak-name {
-  flex: 1; min-width: 0;
-  font-size: 14.5px; font-weight: 550;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.home-streak-num { flex: none; font-size: 13.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.home-streak:active { opacity: .55; }
-
-/* Aufschlüsselung nach Rhythmus: Bezeichnung, Anzahl, Stand der Periode. */
-.home-split { margin-top: 12px; }
-.home-split-row {
-  display: flex; align-items: center; gap: 8px;
-  width: 100%;
-  padding: 7px 0;
-  text-align: left;
-  border-top: 1px solid var(--border);
-}
-.home-split-label {
-  flex: 1; min-width: 0;
-  font-size: 13.5px; font-weight: 550;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.home-split-total { flex: none; font-size: 12.5px; color: var(--text-3); }
-.home-split-done {
-  flex: none;
-  min-width: 38px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 12.5px; font-weight: 650;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-.home-split-done.good { background: var(--accent-soft); color: var(--accent); }
-.home-split-done.muted { background: transparent; color: var(--text-3); font-weight: 500; }
-.home-split-row:active { opacity: .55; }
-
-/* Kennzahlen-Reihe: Zahl groß, Beschriftung klein darunter. */
-.home-stats {
+.w-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  margin-top: 13px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
-/* Steht die Reihe oben in der Karte, braucht sie keine Trennlinie darüber. */
-.home-stats.top { margin-top: 2px; padding-top: 0; border-top: 0; }
-.home-buckets { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--border); }
-.home-stat { text-align: center; }
-.home-stat-num {
-  font-size: 20px; font-weight: 700;
-  letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
-.home-stat-label { font-size: 10.5px; color: var(--text-3); margin-top: 1px; line-height: 1.2; }
-.home-stat.danger .home-stat-num { color: var(--danger); }
+/* Die Zelle ist der Griff zum Verschieben und der Anker für ✕ und Größe. */
+.w-cell { position: relative; min-width: 0; display: flex; }
+.w-small { grid-column: span 1; }
+.w-wide,
+.w-large { grid-column: span 2; }
 
-/* Zusatzangaben unter einer Karte. */
-.home-foot {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 0;
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--text-3);
-}
-.home-foot .dot {
-  display: inline-block;
-  width: 3px; height: 3px;
-  margin: 0 6px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: .55;
-}
-
-.home-link {
-  display: flex; align-items: center; justify-content: space-between;
-  width: 100%;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-  color: var(--accent);
-  font-size: 14px; font-weight: 600;
-  text-align: left;
-}
-.home-link-chev { display: grid; place-items: center; opacity: .7; }
-.home-link:active { opacity: .5; }
-
-.home-empty { font-size: 13.5px; color: var(--text-3); line-height: 1.45; }
-
-.home-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px; }
-.home-tile {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  padding: 14px;
+.w-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-1);
-  text-align: left;
+  overflow: hidden;
 }
-.home-tile-icon { font-size: 21px; line-height: 1.2; margin-bottom: 4px; }
-.home-tile-label { font-size: 15px; font-weight: 650; }
-.home-tile-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.35; }
-.home-tile:active { background: var(--surface-2); transform: scale(.98); }
+.w-small .w-card { min-height: 150px; }
+.w-large .w-card { min-height: 172px; }
+.w-card.tappable:active { background: var(--surface-2); }
+
+/* ---- Gemeinsame Bausteine ---- */
+.w-head { display: flex; align-items: baseline; gap: 8px; flex: none; }
+.w-title {
+  flex: 1; min-width: 0;
+  font-size: 13px; font-weight: 650;
+  letter-spacing: -.005em;
+  color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.w-right {
+  flex: none;
+  font-size: 12.5px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+/* Eine Zahl, die die Karte trägt. Der Rest der Karte schiebt sie mittig. */
+.w-big { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.w-small .w-big { flex: 1; }
+.w-big-num {
+  font-size: 34px; font-weight: 700;
+  letter-spacing: -.03em;
+  line-height: 1.02;
+  font-variant-numeric: tabular-nums;
+}
+.w-big-label {
+  margin-top: 2px;
+  font-size: 12.5px; font-weight: 550;
+  color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.w-big.danger .w-big-num { color: var(--danger); }
+
+/* Mehrere Zahlen nebeneinander: dieselben Bausteine, nur kleiner. */
+.w-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.w-stats .w-big { flex: none; text-align: center; }
+.w-stats .w-big-num { font-size: 22px; }
+.w-stats .w-big-label { font-size: 11px; margin-top: 0; }
+
+.w-ring {
+  position: relative;
+  flex: none;
+  width: 76px; height: 76px;
+  margin: 0 auto;
+  display: grid; place-items: center;
+}
+.w-small .w-ring { margin: auto; }
+.w-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.w-ring circle { fill: none; stroke-width: 6; }
+.w-ring-track { stroke: var(--surface-3); }
+.w-ring-prog {
+  stroke: var(--tint, var(--accent));
+  stroke-linecap: round;
+  transition: stroke-dashoffset .35s cubic-bezier(.2, .8, .3, 1);
+}
+.w-ring-mid {
+  position: relative;
+  font-size: 15px; font-weight: 700;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ein Punkt je Sache, gefüllt heißt erledigt. */
+.w-dots { display: flex; flex-wrap: wrap; gap: 5px; flex: none; }
+.w-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--tint, var(--accent));
+  opacity: .5;
+}
+.w-dot.filled { background: var(--tint, var(--accent)); opacity: 1; }
+
+.w-bar {
+  flex: none;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.w-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--tint, var(--accent));
+  transition: width .35s cubic-bezier(.2, .8, .3, 1);
+}
+
+.w-empty { font-size: 13px; color: var(--text-3); line-height: 1.4; }
+.w-note { font-size: 11.5px; color: var(--text-3); line-height: 1.35; }
+.w-small .w-note { text-align: center; }
+
+/* Aufschlüsselung: Bezeichnung links, Wert rechts. */
+.w-splits { display: flex; flex-direction: column; }
+.w-split {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.w-splits > .w-split:first-child { border-top: 0; padding-top: 0; }
+.w-split-label {
+  flex: 1; min-width: 0;
+  font-size: 13.5px; font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.w-split-value { flex: none; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.w-split.quiet .w-split-value { color: var(--text-3); font-weight: 500; }
+
+/* ---- Zeilen im Widget ----
+   Dieselbe Ordnung wie in den Listen – Farbe an der Kante, Name in der Mitte,
+   Abhaken rechts –, nur kompakter. Der Knopf ist fest 26 px groß, damit die
+   Einstellung für die Zeilenhöhe die Widgets nicht auseinandertreibt; die
+   unsichtbare Trefferfläche von .check bleibt bei 44 px. */
+.w-rows { display: flex; flex-direction: column; }
+.w-row {
+  --check-size: 26px;
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  min-height: 38px;
+  padding: 4px 0 4px 9px;
+  border-radius: 8px;
+}
+/* In der Liste vergrößert .check::before die Trefferfläche auf 44 px. Hier
+   stehen die Zeilen enger: Eine 44er Fläche würde in die Nachbarzeile
+   reichen, und getroffen würde der Knopf, der später im Dokument steht – man
+   hätte die falsche Sache abgehakt. Also genau so groß wie die Zeile hoch
+   ist: lückenlos, aber ohne Überlappung. */
+.w-row .check::before { width: 38px; height: 38px; }
+/* Die Rundung der Zeile ist für das Aufleuchten da. Eine Trennlinie als
+   border-top würde von ihr mitgebogen – jede Zeile sähe wie eine eigene
+   Kapsel aus. Also eine Linie, die nichts von der Rundung weiß. */
+.w-row + .w-row::after {
+  content: '';
+  position: absolute;
+  left: 9px; right: 0; top: 0;
+  height: 1px;
+  background: var(--border);
+}
+.w-row-bar {
+  position: absolute;
+  left: 0; top: 7px; bottom: 7px;
+  width: 2.5px;
+  border-radius: 0 3px 3px 0;
+  background: var(--tint, transparent);
+  opacity: var(--tint-bar);
+}
+.w-row-emoji {
+  flex: none;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border-radius: 7px;
+  font-size: 14px; line-height: 1;
+  background: color-mix(in oklab, var(--tint, var(--surface-3)) var(--tint-chip), var(--surface-2));
+}
+.w-row-lead {
+  flex: none;
+  /* Eine Mindestbreite, damit die Namen untereinander anfangen: „07:00",
+     „Heute" und „Fr." sind sonst unterschiedlich breit und die Zeilen
+     franzen aus. */
+  min-width: 46px;
+  font-size: 11.5px; font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.w-row-title {
+  flex: 1; min-width: 0;
+  font-size: 13.5px; font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.w-row.is-done .w-row-title {
+  color: var(--text-3);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.w-row-trail {
+  flex: none;
+  font-size: 12px; font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+/* Die Zeile liegt in der Karte, hat also keinen eigenen Grund und keinen
+   Schatten – sie leuchtet nur in der Farbe auf und wird wieder durchsichtig. */
+.w-row.flash-done { animation-name: flash-done-in-card; }
+@keyframes flash-done-in-card {
+  0%   { background: transparent; }
+  22%  { background: color-mix(in oklab, var(--tint, var(--accent)) 30%, var(--surface)); }
+  100% { background: transparent; }
+}
+
+/* ---- Verlauf eines Habits ----
+   Dieselbe Zellengröße wie in der Detailansicht, damit beides gleich aussieht.
+   Sieben Reihen (Mo–So), je Spalte eine Woche. */
+.w-heat-wrap { display: flex; justify-content: center; overflow: hidden; }
+.w-heat {
+  display: grid;
+  grid-template-rows: repeat(7, 13px);
+  grid-template-columns: repeat(var(--cols), 13px);
+  gap: 2px;
+}
+.w-heat-cell { border-radius: 3px; background: var(--surface-2); }
+.w-heat-cell.part { background: color-mix(in oklab, var(--tint, var(--accent)) 45%, var(--surface-2)); }
+.w-heat-cell.full { background: var(--tint, var(--accent)); }
+.w-heat-cell.future { background: transparent; box-shadow: inset 0 0 0 1px var(--surface-2); }
+
+/* ---- Monat im Kleinen ----
+   Der aktuelle Tag rot umkreist wie im Kalender, verplante Tage hinterlegt. */
+.w-month { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 3px; }
+.w-month-wd {
+  font-size: 10px; font-weight: 650;
+  color: var(--text-3);
+  text-align: center;
+  padding-bottom: 3px;
+}
+.w-month-day {
+  width: 26px; height: 26px;
+  margin: 0 auto;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  font-size: 12.5px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.w-month-day.on { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.w-month-day.today {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+  color: var(--danger);
+  font-weight: 700;
+}
+.w-month-day.today.on { background: var(--danger-soft); }
+.w-large .w-month-day { width: 32px; height: 32px; font-size: 14px; }
+.w-large .w-month { row-gap: 4px; }
+
+/* ---- Die nächsten sieben Tage ---- */
+.w-week { display: flex; align-items: flex-end; gap: 6px; }
+.w-week-day {
+  flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.w-week-bar {
+  width: 100%;
+  height: 46px;
+  display: flex; align-items: flex-end;
+  border-radius: 5px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.w-week-fill {
+  width: 100%;
+  border-radius: 5px;
+  background: var(--accent);
+  transition: height .3s cubic-bezier(.2, .8, .3, 1);
+}
+.w-week-name { font-size: 10.5px; font-weight: 600; color: var(--text-3); }
+.w-week-num { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.w-week-day.today .w-week-name { color: var(--danger); font-weight: 700; }
+.w-large .w-week-bar { height: 82px; }
+
+/* ---- Schnell anlegen ---- */
+.w-quick { display: flex; gap: 8px; }
+.w-quick-btn {
+  flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 9px 4px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 11.5px; font-weight: 650;
+}
+.w-quick-btn:active { background: var(--surface-3); transform: scale(.96); }
+.w-quick-icon { display: grid; place-items: center; color: var(--text-2); }
+.w-quick-icon svg { width: 20px; height: 20px; }
+
+/* ==========================================================================
+   Startseite: Bearbeiten-Modus
+   Die Widgets wackeln leicht, wie man es vom Telefonstartbildschirm kennt.
+   Gedrückt halten hebt sie an – dieselbe Geste wie beim Sortieren von Habits
+   und To-dos.
+   ========================================================================== */
+body.is-editing-home .w-grid { margin-top: 8px; }
+body.is-editing-home #home-scroll {
+  padding-bottom: calc(var(--safe-b) + var(--tabbar-h) + var(--editbar-h) + 24px);
+}
+
+/* Es wackelt die Karte, nicht die Zelle: ✕ und der Größen-Knopf hängen an der
+   Zelle und sollen ruhig stehen bleiben – ein mitwanderndes Tippziel trifft
+   sich schlecht. */
+.w-cell.editing .w-card { animation: w-wobble 2.6s ease-in-out infinite; }
+.w-cell.editing:nth-child(even) .w-card { animation-delay: -1.3s; }
+@keyframes w-wobble {
+  0%, 100% { transform: rotate(-.35deg); }
+  50%      { transform: rotate(.35deg); }
+}
+.w-cell.editing .w-card {
+  transform-origin: 50% 50%;
+  border-style: dashed;
+  border-color: var(--border-strong);
+  /* Beim Anordnen ist der Inhalt nur Bild: Ohne diesen Riegel würde das
+     Gedrückthalten auf einem Abhak-Knopf oder in „Schnell anlegen" dort
+     ankommen statt beim Verschieben. Die Ereignisse fallen dadurch auf die
+     Zelle zurück, wo die Geste hängt; ✕ und Größe liegen daneben, nicht
+     darin, und bleiben deshalb bedienbar. */
+  pointer-events: none;
+}
+
+.w-remove,
+.w-resize {
+  position: absolute;
+  z-index: 2;
+  display: grid; place-items: center;
+  border-radius: 999px;
+  box-shadow: var(--shadow-1);
+}
+/* Auch diese Knöpfe sind sichtbar klein, aber 44 px groß anzufassen. */
+.w-remove::before,
+.w-resize::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: max(44px, 100%); height: max(44px, 100%);
+  transform: translate(-50%, -50%);
+}
+.w-remove {
+  top: -7px; left: -7px;
+  width: 26px; height: 26px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 13px; font-weight: 700;
+  line-height: 1;
+}
+.w-resize {
+  bottom: -7px; right: -7px;
+  height: 24px;
+  padding: 0 10px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 11px; font-weight: 700;
+}
+.w-remove:active,
+.w-resize:active { transform: scale(.88); }
+
+/* Im Raster ist der Platzhalter so breit wie das gezogene Widget – die Rundung
+   muss zur Karte passen, nicht zur Zeile. */
+.w-grid .drag-placeholder { border-radius: var(--radius-lg); }
+
+/* ---- Die Leiste über der Tab-Leiste ---- */
+.editbar {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(var(--tabbar-h) + var(--safe-b));
+  z-index: 29;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 9px calc(var(--safe-r) + 14px) 7px calc(var(--safe-l) + 14px);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--border);
+}
+.editbar[hidden] { display: none; }
+.edit-bar-row { display: flex; gap: 8px; }
+/* Die Knöpfe stehen hier nebeneinander, nicht gestapelt. */
+.edit-bar-row .btn { margin-top: 0; }
+.edit-bar-row .btn + .btn { margin-top: 0; }
+.edit-bar-row .btn { padding: 10px; font-size: 15px; }
+
+/* ---- Auswahl neuer Widgets: Bereichsüberschrift im Blatt ---- */
+.w-pick-area {
+  font-size: 12px; font-weight: 650;
+  letter-spacing: .05em; text-transform: uppercase;
+  color: var(--text-3);
+  padding: 14px 4px 7px;
+}
+.sheet-body > .w-pick-area:first-child { padding-top: 2px; }
+
+/* ---- Die drei Zeilen, die nie verschwinden ---- */
+.home-row-icon {
+  flex: none;
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 9px;
+  background: var(--surface-2);
+  font-size: 16px; line-height: 1;
+}
 
 /* ==========================================================================
    Suche

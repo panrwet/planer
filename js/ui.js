@@ -433,6 +433,9 @@ export function openDropup({ title, build }) {
   return { close };
 }
 
+/** Schließt ein offenes Drop-up, falls eines offen ist. */
+export function closeMenu() { closeDropup?.(); }
+
 /** Eine Zeile im Drop-up. */
 export function dropupItem({ emoji, label, hint, active, danger, overdue, onClick }) {
   const node = el('button', {

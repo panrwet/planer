@@ -9,7 +9,8 @@ import {
   renderTodos, renderListBar, openListMenu, openListEditor, openTodoEditor, bindListSelect,
 } from './todos.js';
 import { renderSettings, renderTrash, bindApply, bindSettingsNavigate, flashSetting } from './settings.js';
-import { renderHome, bindNavigate as bindHomeNav } from './home.js';
+import { renderHome, bindNavigate as bindHomeNav, bindActions as bindHomeActions,
+         isEditing as isHomeEditing, leaveEdit as leaveHomeEdit } from './home.js';
 import { renderCalendar, renderDayPlan, setDay, currentDay,
          stepMonth, stepDay, jumpToToday, bindOpenDay, openPlanPicker } from './calendar.js';
 import { renderSearch, clearSearch, bindNavigate as bindSearchNav } from './search.js';
@@ -59,6 +60,15 @@ const SCREENS = {
 };
 
 function show(screen, arg) {
+  /* Im Bearbeiten-Modus der Startseite fehlen die drei festen Zeilen; bliebe
+     er über den Bereichswechsel hinweg stehen, wären Suche und Einstellungen
+     nicht mehr erreichbar. Also erst beenden, dann wechseln – gibt es
+     Ungespeichertes, fragt leaveEdit vorher nach und ruft den Wechsel erst
+     nach der Antwort auf. */
+  if (view.screen === 'home' && screen !== 'home' && isHomeEditing()) {
+    leaveHomeEdit(() => show(screen, arg));
+    return;
+  }
   if (screen === 'detail') view.habitId = arg;
   if (screen === 'settings') view.settingId = arg || null;
   if (screen === 'calendar') setDay(arg || currentDay() || S.today());
@@ -135,6 +145,14 @@ function navigate(where, arg) {
   else show(where, arg);
 }
 bindHomeNav(navigate);
+/* Was das Widget „Schnell anlegen" anbietet. Der Plan-Eintrag führt dabei in
+   den Tagesplan von heute – sonst wäre nach dem Einplanen nicht zu sehen,
+   was daraus geworden ist. */
+bindHomeActions({
+  newHabit: () => openHabitEditor(null, () => renderCurrent()),
+  newTodo: () => newTodoIn(S.settings().lastListId, () => renderCurrent()),
+  newPlan: () => { show('day', S.today()); openPlanPicker(); },
+});
 bindSearchNav(navigate);
 bindSettingsNavigate(navigate);
 
@@ -176,24 +194,25 @@ $('#list-menu').addEventListener('click', () => {
   });
 });
 
+/**
+ * Ein neues To-do anlegen – aus dem To-dos-Bereich wie von der Startseite.
+ *
+ * Ohne Liste gibt es nichts, wo es hingehörte; dann wird zuerst eine angelegt.
+ * Ist die gewünschte Liste keine echte – „All" oder von der Startseite aus gar
+ * keine –, landet es in der ersten vorhandenen. Der Hinweis sagt dann, in
+ * welcher, damit es nicht still irgendwo auftaucht.
+ */
+function newTodoIn(listId, done) {
+  const ziel = S.list(listId) || S.lists()[0];
+  if (!ziel) { openListEditor(null, (saved) => show('todos', saved?.id || '')); return; }
+  openTodoEditor(ziel.id, null, (saved) => {
+    done?.(saved);
+    if (saved && ziel.id !== listId) toast(`In „${ziel.name}" angelegt`);
+  });
+}
+
 $('#todo-add').addEventListener('click', () => {
-  /* In „All" gibt es keine Liste, in die etwas gehören würde. Dann landet das
-     neue To-do in der ersten vorhandenen – und der Hinweis sagt, in welcher,
-     damit es nicht still irgendwo auftaucht. */
-  if (view.listId === S.ALL_LISTS) {
-    const ziel = S.lists()[0];
-    if (!ziel) { openListEditor(null, (saved) => show('todos', saved?.id || '')); return; }
-    openTodoEditor(ziel.id, null, (saved) => {
-      renderCurrent();
-      if (saved) toast(`In „${ziel.name}" angelegt`);
-    });
-    return;
-  }
-  if (!S.list(view.listId)) {
-    openListEditor(null, (saved) => show('todos', saved?.id || ''));
-    return;
-  }
-  openTodoEditor(view.listId, null, () => renderCurrent());
+  newTodoIn(view.listId === S.ALL_LISTS ? '' : view.listId, () => renderCurrent());
 });
 
 /* Schatten unter der Kopfzeile, sobald der Inhalt darunter wegläuft. */

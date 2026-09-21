@@ -1,30 +1,96 @@
-/* Startseite: was heute ansteht und was liegen geblieben ist.
-   Die Zahlen kommen aus store.overview(), damit Startseite, Listen-Reiter und
-   Suche nie auseinanderlaufen. */
+/* Startseite: frei zusammengesetzt aus Widgets.
+ *
+ * Was angezeigt wird, steht im aktiven Profil (store: homeProfiles). Wie ein
+ * Widget aussieht, weiß allein der Katalog in js/widgets.js – diese Datei
+ * kennt keinen einzigen Widget-Typ. Sie ordnet an, verschiebt und speichert.
+ *
+ * Unten stehen drei Zeilen, die nie verschwinden: Suchen, Einstellungen und
+ * Startseite bearbeiten. Sie liegen außerhalb des Rasters, damit sie beim
+ * Umsortieren nicht mitwandern können.
+ *
+ * Bearbeiten arbeitet auf einer Kopie der Anordnung. Erst „Speichern"
+ * übernimmt sie; „Abbrechen" wirft sie weg. Sonst wäre ein verrutschtes
+ * Widget sofort endgültig.
+ */
 
-import { $, el, num, formatLongDate, formatDue, daysBetween, haptic } from './util.js';
+import { $, el, formatLongDate, haptic } from './util.js';
 import * as S from './store.js';
-import { openSheet, closeSheet, checkButton, applyFlash } from './ui.js';
+import { openSheet, closeSheet, closeMenu, confirmSheet, openDropup, dropupItem,
+         segmented, textInput, toast } from './ui.js';
+import { attachSortable, isDragging } from './drag.js';
+import { widgetType, widgetsByArea, SIZE_LABEL } from './widgets.js';
 
 let go = () => {};
-/** Navigation von außen: go('habits') | go('todos', listId) | go('settings') | go('search') */
+/** Navigation von außen: go('habits') | go('todos', listId) | go('day', key) … */
 export function bindNavigate(fn) { go = fn; }
+
+let actions = {};
+/** Handlungen, die Widgets anbieten (neues Habit, neues To-do, einplanen). */
+export function bindActions(fns) { actions = fns; }
+
+/* Beim Bearbeiten wird auf einer Kopie gearbeitet. null heißt: nicht im
+   Bearbeiten-Modus. */
+let entwurf = null;
+let entwurfProfil = null;
+
+export function isEditing() { return entwurf !== null; }
 
 export function renderHome() {
   const scroll = $('#home-scroll');
   const key = S.today();
-  const o = S.overview(key);
-  const isDark = document.documentElement.dataset.resolved === 'dark';
+  const profil = S.homeProfile();
+  const bearbeiten = isEditing();
 
-  $('#home-greeting').textContent = greeting();
-  $('#home-date').textContent = formatLongDate(key);
+  $('#home-greeting').textContent = bearbeiten ? 'Startseite bearbeiten' : greeting();
+  $('#home-date').textContent = bearbeiten
+    ? `Profil „${entwurfProfil?.name ?? profil.name}"`
+    : formatLongDate(key);
+  document.body.classList.toggle('is-editing-home', bearbeiten);
+
+  const liste = bearbeiten ? entwurf : profil.widgets;
+  const raster = el('div', { class: 'w-grid', id: 'w-grid' });
+
+  for (const w of liste) raster.append(widgetShell(w, key, bearbeiten));
+
+  // Ziehen erst anhängen, wenn alle Widgets im Raster hängen.
+  if (bearbeiten) {
+    for (const zelle of raster.children) {
+      attachSortable(zelle, zelle, {
+        host: raster,
+        scroll,
+        grid: true,
+        hint: 'Gedrückt halten und verschieben',
+        ignore: '.w-remove, .w-resize',
+        onDrop: (order) => {
+          entwurf = order.map(o => entwurf.find(w => w.id === o.id)).filter(Boolean);
+          renderHome();
+        },
+      });
+    }
+  }
 
   scroll.replaceChildren(
-    habitCard(o, key, isDark),
-    todoCard(o, key),
-    o.streaks.length ? streakCard(o, isDark) : null,
-    tiles(),
+    ...(bearbeiten ? [hinweisZeile()] : []),
+    liste.length ? raster : leerHinweis(bearbeiten),
+    ...(bearbeiten ? [] : [fixedRows()]),
   );
+
+  /* Die Leiste zum Speichern liegt außerhalb des Scrollbereichs, über der
+     Tab-Leiste – sonst müsste man bei vielen Widgets erst ans Ende scrollen,
+     um überhaupt speichern zu können. */
+  const leiste = $('#home-editbar');
+  leiste.hidden = !bearbeiten;
+  leiste.replaceChildren(...(bearbeiten ? editBar() : []));
+  /* Wie hoch die Leiste wirklich ist, weiß erst der fertige Aufbau. Ein fest
+     eingetragener Wert wäre bei größerer Schrift zu klein – dann läge das
+     letzte Widget dahinter. */
+  document.documentElement.style.setProperty(
+    '--editbar-h', bearbeiten ? `${leiste.offsetHeight}px` : '0px');
+}
+
+function hinweisZeile() {
+  return el('p', { class: 'field-hint', style: 'margin:0 4px 10px',
+    text: 'Widget gedrückt halten und verschieben. ✕ entfernt, der Knopf rechts ändert die Größe.' });
 }
 
 function greeting() {
@@ -35,268 +101,393 @@ function greeting() {
   return 'Guten Abend';
 }
 
-/* ---------- Habits heute ---------- */
+function leerHinweis(bearbeiten) {
+  return el('div', { class: 'empty', style: 'padding:32px 0' }, [
+    el('div', { class: 'empty-icon', text: '🧩' }),
+    el('h2', { text: 'Keine Widgets' }),
+    el('p', { text: bearbeiten
+      ? 'Tippe unten auf „Widget hinzufügen".'
+      : 'Tippe unten auf „Startseite bearbeiten", um welche hinzuzufügen.' }),
+  ]);
+}
 
-function habitCard(o, key, isDark) {
-  const { due, done, pct, total, byInterval, resting } = o.habits;
+/* ==========================================================================
+   Die Hülle eines Widgets
+   Größe, Rahmen, Antippen und – im Bearbeiten-Modus – der Entfernen-Knopf.
+   Den Inhalt liefert der Katalog.
+   ========================================================================== */
 
-  if (!total) {
-    return card('Habits', [
-      el('p', { class: 'home-empty', text: 'Noch keine Habits angelegt.' }),
-      linkRow('Habits öffnen', () => go('habits')),
-    ]);
-  }
+function widgetShell(w, key, bearbeiten) {
+  const typ = widgetType(w.type);
+  const zelle = el('div', {
+    class: `w-cell w-${w.size}${bearbeiten ? ' editing' : ''}`,
+    dataset: { id: w.id, type: w.type },
+  });
 
-  const parts = [];
-
-  if (due) {
-    const allDone = done === due;
-    parts.push(
-      el('div', { class: 'home-hero' }, [
-        el('div', { class: 'home-hero-num' }, [
-          String(done),
-          el('span', { class: 'home-hero-of', text: ` von ${due}` }),
-        ]),
-        el('div', {
-          class: `home-hero-txt${allDone ? ' good' : ''}`,
-          text: allDone ? 'Alles erledigt ✓' : `${pct} % geschafft`,
-        }),
-      ]),
-      el('div', { class: 'home-bar' }, [el('div', { class: 'home-bar-fill', style: `width:${pct}%` })]),
+  const karte = el('div', { class: 'w-card' });
+  if (!typ) {
+    // Ein Typ, den diese Fassung nicht kennt – etwa aus einer neueren
+    // Sicherung. Lieber sichtbar stehen lassen als still verwerfen.
+    karte.append(
+      el('div', { class: 'w-head' }, [el('span', { class: 'w-title', text: 'Unbekanntes Widget' })]),
+      el('p', { class: 'w-empty', text: w.type }),
     );
-
-    // Ein Punkt je fälliges Habit – zeigt auf einen Blick, was noch offen ist.
-    const dots = el('div', { class: 'home-dots' });
-    for (const h of S.habits().filter(x => S.isActiveOn(x, key))) {
-      const c = S.colorOf(h.color);
-      dots.append(el('span', {
-        class: `home-dot${S.isDoneOn(h, key) ? ' filled' : ''}`,
-        style: `--tint:${isDark ? c.dark : c.light}`,
-        title: `${h.emoji || ''} ${h.name}`.trim(),
-      }));
-    }
-    parts.push(dots);
   } else {
-    parts.push(el('div', { class: 'home-hero' }, [
-      el('div', { class: 'home-hero-num', text: '🌙' }),
-      el('div', { class: 'home-hero-txt', text: 'Heute ist nichts eingeplant.' }),
-    ]));
+    const ctx = { size: w.size, opts: w.opts, go, actions, key, today: key,
+                  isDark: document.documentElement.dataset.resolved === 'dark' };
+    try {
+      karte.append(...[].concat(typ.build(ctx)).filter(Boolean));
+    } catch (err) {
+      // Ein einzelnes Widget darf nicht die ganze Startseite mitnehmen.
+      console.error(`Widget ${w.type} konnte nicht gezeichnet werden`, err);
+      karte.append(
+        el('div', { class: 'w-head' }, [el('span', { class: 'w-title', text: typ.label })]),
+        el('p', { class: 'w-empty', text: 'Lässt sich gerade nicht anzeigen.' }),
+      );
+    }
+    if (!bearbeiten && typ.tap && !typ.inert) {
+      karte.classList.add('tappable');
+      karte.addEventListener('click', (e) => {
+        if (isDragging() || e.target.closest('.w-quick-btn, .check')) return;
+        haptic();
+        typ.tap(ctx);
+      });
+    }
   }
+  zelle.append(karte);
 
-  /* Aufschlüsselung nach Rhythmus: wie viele Habits es je Intervall gibt und
-     wie viele davon in der laufenden Periode schon erfüllt sind. */
-  if (byInterval.length) {
-    parts.push(el('div', { class: 'home-split' }, byInterval.map(g => {
-      const row = el('button', { class: 'home-split-row', type: 'button' }, [
-        el('span', { class: 'home-split-label', text: g.label }),
-        el('span', {
-          class: 'home-split-total',
-          text: g.total === 1 ? '1 Habit' : `${g.total} Habits`,
-        }),
-        g.due
-          ? el('span', {
-              class: `home-split-done${g.done === g.due ? ' good' : ''}`,
-              text: `${g.done}/${g.due}`,
-            })
-          : el('span', { class: 'home-split-done muted', text: 'frei' }),
-      ]);
-      row.addEventListener('click', () => { haptic(); go('habits', g.id); });
-      return row;
-    })));
+  if (bearbeiten) {
+    const weg = el('button', { class: 'w-remove', type: 'button', text: '✕',
+      'aria-label': `${typ?.label || w.type} entfernen` });
+    weg.addEventListener('click', (e) => {
+      e.stopPropagation();
+      haptic(14);
+      entwurf = entwurf.filter(x => x.id !== w.id);
+      renderHome();
+    });
+    zelle.append(weg);
+    // Größe im Bearbeiten-Modus umstellen, ohne das Widget neu anzulegen.
+    const groesse = el('button', { class: 'w-resize', type: 'button',
+      text: SIZE_LABEL[w.size], 'aria-label': 'Größe ändern' });
+    groesse.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const moeglich = typ?.sizes || ['wide'];
+      const naechste = moeglich[(moeglich.indexOf(w.size) + 1) % moeglich.length];
+      w.size = naechste;
+      haptic();
+      renderHome();
+    });
+    if ((typ?.sizes || []).length > 1) zelle.append(groesse);
   }
-
-  parts.push(el('div', { class: 'home-foot' }, [
-    el('span', { text: `${total} ${total === 1 ? 'Habit' : 'Habits'} insgesamt` }),
-    resting ? el('span', { class: 'dot' }) : null,
-    resting ? el('span', { text: `${resting} heute nicht dran` }) : null,
-  ].filter(Boolean)));
-
-  parts.push(linkRow(
-    o.habits.open ? `${o.habits.open} offen — jetzt abhaken` : 'Habits ansehen',
-    () => go('habits'),
-  ));
-
-  return card('Habits heute', parts);
+  return zelle;
 }
 
-/* ---------- To-dos ---------- */
+/* ==========================================================================
+   Die drei festen Zeilen
+   ========================================================================== */
 
-function todoCard(o, key) {
-  const t = o.todos;
-  if (!t.total) {
-    return card('To-dos', [
-      el('p', { class: 'home-empty', text: 'Noch keine To-dos angelegt.' }),
-      linkRow('To-dos öffnen', () => go('todos')),
-    ]);
-  }
-
-  /* Zuerst der Bestand auf einen Blick – wie bei den Habits die Hauptzahl
-     oben steht. Überfällig trägt die Warnfarbe, alles andere normale
-     Textfarbe. Darunter die Fälligkeiten im Einzelnen. */
-  const parts = [el('div', { class: 'home-stats top' }, [
-    stat(t.total, 'insgesamt'),
-    stat(t.open, 'offen'),
-    stat(t.done, 'erledigt'),
-    stat(t.overdue.length, 'überfällig', t.overdue.length ? 'danger' : ''),
-  ])];
-
-  const buckets = [];
-  const add = (label, items, cls) => {
-    if (items.length) buckets.push(bucketRow(label, items, cls, key));
-  };
-  add('Überfällig', t.overdue, 'danger');
-  add('Heute', t.today, 'accent');
-  add('Morgen', t.tomorrow, '');
-  add('Diese Woche', t.thisWeek, '');
-
-  if (buckets.length) parts.push(el('div', { class: 'home-buckets' }, buckets));
-  else if (t.open) {
-    parts.push(el('p', { class: 'home-empty', style: 'margin-top:12px', text: 'Nichts terminiert.' }));
-  }
-
-  const extras = [];
-  if (t.noDue) extras.push(`${t.noDue} ohne Datum`);
-  if (t.later) extras.push(`${t.later} später`);
-  if (t.lists) extras.push(`${t.lists} ${t.lists === 1 ? 'Liste' : 'Listen'}`);
-  if (extras.length) {
-    parts.push(el('div', { class: 'home-foot', text: extras.join(' · ') }));
-  }
-
-  parts.push(linkRow(
-    t.open ? `Alle ${t.open} offenen To-dos` : 'To-dos ansehen',
-    () => go('todos'),
-  ));
-
-  return card('To-dos', parts);
-}
-
-/** Eine Kennzahl mit Beschriftung darunter. */
-function stat(value, label, cls = '') {
-  return el('div', { class: `home-stat ${cls}`.trim() }, [
-    el('div', { class: 'home-stat-num', text: String(value) }),
-    el('div', { class: 'home-stat-label', text: label }),
+function fixedRows() {
+  return el('div', { class: 'group', style: 'margin-top:16px' }, [
+    el('div', { class: 'group-card' }, [
+      homeRow('🔍', 'Suchen', 'Habits, To-dos, Listen und Einstellungen', () => go('search')),
+      homeRow('⚙️', 'Einstellungen', 'Darstellung, Planung, Sicherung', () => go('settings')),
+      homeRow('✏️', 'Startseite bearbeiten', 'Widgets anordnen, Profile wechseln', startEdit),
+    ]),
   ]);
 }
 
-/** Eine Zeile wie „Überfällig 2" – öffnet die To-dos dieser Gruppe. */
-function bucketRow(label, items, cls, key) {
-  const row = el('button', { class: `home-bucket ${cls}`.trim(), type: 'button' }, [
-    el('span', { class: 'home-bucket-label', text: label }),
-    el('span', { class: 'home-bucket-names', text: items.map(t => t.title).join(', ') }),
-    el('span', { class: 'home-bucket-count', text: String(items.length) }),
+function homeRow(zeichen, titel, hinweis, onClick) {
+  const row = el('button', { class: 'setting tappable', type: 'button', dataset: { home: titel } }, [
+    el('span', { class: 'home-row-icon', text: zeichen }),
+    el('div', { class: 'setting-body' }, [
+      el('div', { class: 'setting-title', text: titel }),
+      el('div', { class: 'setting-desc', text: hinweis }),
+    ]),
+    el('span', { class: 'setting-value', html: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>' }),
   ]);
-  row.addEventListener('click', () => { haptic(); openBucket(label, items, key); });
+  row.addEventListener('click', () => { haptic(); onClick(); });
   return row;
 }
 
-/** Sheet mit den To-dos einer Gruppe – direkt abhakbar. */
-function openBucket(label, items, key) {
-  openSheet({
-    title: label,
-    cancel: 'Fertig',
-    build: (body) => {
-      const host = el('div', { class: 'list' });
-      const paint = () => {
-        const live = items.map(t => S.todo(t.id)).filter(Boolean);
-        if (!live.length) {
-          host.replaceChildren(el('p', { class: 'home-empty', text: 'Nichts mehr offen hier.' }));
-          return;
-        }
-        const isDark = document.documentElement.dataset.resolved === 'dark';
-        host.replaceChildren(...live.map(t => {
-          const l = S.list(t.listId);
-          const c = t.color || l?.color;
-          const tint = c ? (document.documentElement.dataset.resolved === 'dark'
-            ? S.colorOf(c).dark : S.colorOf(c).light) : null;
-          const late = t.due && !t.done ? -daysBetween(key, t.due) : 0;
-          const row = el('div', {
-            class: `row tappable${c ? ' tinted' : ''}${t.done ? ' is-done dimmed' : ''}`,
-            style: c ? S.tintStyle(c, isDark) : null,
-          }, [
-            el('div', { class: 'row-body' }, [
-              el('div', { class: 'row-title', text: t.title }),
-              el('div', { class: 'row-meta' }, [
-                el('span', { text: l?.name || '' }),
-                t.due ? el('span', { class: 'dot' }) : null,
-                t.due ? el('span', {
-                  class: late > 0 ? 'overdue' : '',
-                  text: late > 0 ? `${late === 1 ? '1 Tag' : `${late} Tage`} überfällig` : formatDue(t.due, key),
-                }) : null,
-              ].filter(Boolean)),
-            ]),
-            checkButton({
-              value: t.done ? 1 : 0, target: 1, color: tint, flashKey: t.id,
-              label: t.done ? `${t.title} wieder öffnen` : `${t.title} abhaken`,
-              onTap: () => { S.toggleTodo(t.id); paint(); renderHome(); },
-            }),
-          ]);
-          if (t.done) applyFlash(row, t.id);
-          row.addEventListener('click', (e) => {
-            if (e.target.closest('.check')) return;
-            closeSheet();
-            go('todos', t.listId);
-          });
-          return row;
-        }));
-      };
-      paint();
-      body.append(host);
-    },
-    onClose: renderHome,
+/* ==========================================================================
+   Bearbeiten
+   ========================================================================== */
+
+export function startEdit() {
+  const p = S.homeProfile();
+  entwurfProfil = { id: p.id, name: p.name };
+  // Tiefe Kopie: Was hier verschoben wird, darf den gespeicherten Stand erst
+  // beim Speichern anfassen.
+  entwurf = p.widgets.map(w => ({ ...w, opts: { ...w.opts } }));
+  renderHome();
+  $('#home-scroll').scrollTo({ top: 0 });
+}
+
+function stopEdit() {
+  entwurf = null;
+  entwurfProfil = null;
+  /* Was noch offen steht, gehört zum Bearbeiten und arbeitet auf dem Entwurf.
+     Bliebe die Auswahl offen, würde „Hinzufügen" danach in einen Entwurf
+     schreiben, den es nicht mehr gibt. */
+  closeSheet();
+  closeMenu();
+  renderHome();
+}
+
+/** Ob der Entwurf von der gespeicherten Anordnung abweicht. */
+function geaendert() {
+  const p = S.homeProfiles().find(x => x.id === entwurfProfil?.id);
+  if (!p) return true;
+  return JSON.stringify(p.widgets) !== JSON.stringify(entwurf);
+}
+
+/**
+ * Den Bearbeiten-Modus verlassen, weil ein anderer Bereich aufgerufen wurde.
+ *
+ * Nötig, weil im Bearbeiten-Modus die drei festen Zeilen nicht dastehen –
+ * bliebe der Modus über den Reiterwechsel hinweg bestehen, käme man ohne
+ * Umweg nicht mehr in die Einstellungen. Ungespeichertes wird deshalb nicht
+ * still weggeworfen, sondern nachgefragt.
+ */
+export function leaveEdit(weiter) {
+  if (!isEditing()) { weiter(); return; }
+  if (!geaendert()) { stopEdit(); weiter(); return; }
+  confirmSheet({
+    title: 'Startseite verlassen?',
+    message: 'Die Anordnung ist noch nicht gespeichert und geht verloren.',
+    confirmLabel: 'Verwerfen',
+    onConfirm: () => { stopEdit(); weiter(); },
   });
 }
 
-/* ---------- Serien ---------- */
-
-function streakCard(o, isDark) {
-  const top = o.streaks.slice(0, 3);
-  return card('Serien', top.map(({ habit: h, streak }) => {
-    const c = S.colorOf(h.color);
-    const row = el('button', {
-      class: 'home-streak', type: 'button',
-      style: `--tint:${isDark ? c.dark : c.light}`,
-    }, [
-      el('span', { class: 'home-streak-emoji', text: h.emoji || '•' }),
-      el('span', { class: 'home-streak-name', text: h.name }),
-      el('span', { class: 'home-streak-num', text: `🔥 ${streak}` }),
-    ]);
-    row.addEventListener('click', () => { haptic(); go('habit', h.id); });
-    return row;
-  }));
+/** Die beiden Knopfzeilen der Leiste. Die Hülle steht im HTML. */
+function editBar() {
+  return [
+    el('div', { class: 'edit-bar-row' }, [
+      barBtn('Profil', () => openProfileMenu(), 'secondary'),
+      barBtn('+ Widget', () => openWidgetPicker(), 'secondary'),
+    ]),
+    el('div', { class: 'edit-bar-row' }, [
+      barBtn('Abbrechen', () => {
+        if (!geaendert()) { stopEdit(); return; }
+        confirmSheet({
+          title: 'Änderungen verwerfen?',
+          message: 'Die Anordnung geht zurück auf den gespeicherten Stand.',
+          confirmLabel: 'Verwerfen',
+          onConfirm: stopEdit,
+        });
+      }, 'secondary'),
+      barBtn('Speichern', () => {
+        const ok = S.setWidgets(entwurfProfil.id, entwurf);
+        stopEdit();
+        toast(ok ? 'Startseite gespeichert' : 'Dieses Profil gibt es nicht mehr – nichts gespeichert.');
+      }, ''),
+    ]),
+  ];
 }
 
-/* ---------- Kacheln ---------- */
-
-function tiles() {
-  const tile = (emoji, label, hint, onClick) => {
-    const b = el('button', { class: 'home-tile', type: 'button' }, [
-      el('span', { class: 'home-tile-icon', text: emoji }),
-      el('span', { class: 'home-tile-label', text: label }),
-      el('span', { class: 'home-tile-hint', text: hint }),
-    ]);
-    b.addEventListener('click', () => { haptic(); onClick(); });
-    return b;
-  };
-  return el('div', { class: 'home-tiles' }, [
-    tile('🔍', 'Suchen', 'Habits, To-dos, Listen', () => go('search')),
-    tile('⚙️', 'Einstellungen', 'Darstellung, Backup', () => go('settings')),
-  ]);
-}
-
-/* ---------- Bausteine ---------- */
-
-function card(title, children) {
-  return el('div', { class: 'card home-card' }, [
-    el('h3', { text: title }),
-    ...[].concat(children).filter(Boolean),
-  ]);
-}
-
-function linkRow(label, onClick) {
-  const b = el('button', { class: 'home-link', type: 'button' }, [
-    el('span', { text: label }),
-    el('span', { class: 'home-link-chev', html: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>' }),
-  ]);
+function barBtn(text, onClick, cls) {
+  const b = el('button', { class: `btn ${cls}`.trim(), type: 'button', text });
   b.addEventListener('click', () => { haptic(); onClick(); });
   return b;
+}
+
+/* ---------- Profile ---------- */
+
+function openProfileMenu() {
+  if (!entwurfProfil) return;
+  openDropup({
+    title: 'Profile',
+    build: (body, { close }) => {
+      for (const p of S.homeProfiles()) {
+        body.append(dropupItem({
+          emoji: p.id === entwurfProfil.id ? '●' : '○',
+          label: p.name,
+          hint: `${p.widgets.length} ${p.widgets.length === 1 ? 'Widget' : 'Widgets'}`,
+          active: p.id === entwurfProfil.id,
+          onClick: () => {
+            close();
+            if (p.id === entwurfProfil.id) return;
+            // Profilwechsel im Bearbeiten-Modus: Der Entwurf des alten Profils
+            // ist damit verworfen – gefragt wird nur, wenn er etwas enthält.
+            const p0 = S.homeProfiles().find(x => x.id === entwurfProfil.id);
+            const offen = geaendert();
+            const wechseln = () => {
+              S.setHomeProfile(p.id);
+              entwurfProfil = { id: p.id, name: p.name };
+              entwurf = p.widgets.map(w => ({ ...w, opts: { ...w.opts } }));
+              renderHome();
+            };
+            if (!offen) { wechseln(); return; }
+            confirmSheet({
+              title: 'Profil wechseln?',
+              message: `Die Änderungen an „${p0?.name ?? entwurfProfil.name}" sind noch nicht gespeichert und gehen verloren.`,
+              confirmLabel: 'Wechseln',
+              onConfirm: wechseln,
+            });
+          },
+        }));
+      }
+
+      body.append(el('div', { class: 'dropup-sep' }));
+      body.append(dropupItem({
+        emoji: '＋', label: 'Neues Profil',
+        onClick: () => { close(); askName('Neues Profil', '', (name) => {
+          const p = S.addProfile(name);
+          if (!p) { toast('Mehr Profile gehen nicht'); return; }
+          entwurfProfil = { id: p.id, name: p.name };
+          entwurf = [];
+          renderHome();
+        }); },
+      }));
+      body.append(dropupItem({
+        emoji: '⧉', label: 'Dieses Profil kopieren',
+        onClick: () => {
+          close();
+          const p = S.duplicateProfile(entwurfProfil.id);
+          if (!p) { toast('Mehr Profile gehen nicht'); return; }
+          entwurfProfil = { id: p.id, name: p.name };
+          entwurf = p.widgets.map(w => ({ ...w, opts: { ...w.opts } }));
+          renderHome();
+          toast(`„${p.name}" angelegt`);
+        },
+      }));
+      body.append(dropupItem({
+        emoji: '✏️', label: 'Profil umbenennen',
+        onClick: () => { close(); askName('Profil umbenennen', entwurfProfil.name, (name) => {
+          S.renameProfile(entwurfProfil.id, name);
+          entwurfProfil.name = name;
+          renderHome();
+        }); },
+      }));
+      if (S.homeProfiles().length > 1) {
+        body.append(dropupItem({
+          emoji: '🗑', label: 'Profil löschen',
+          onClick: () => {
+            close();
+            confirmSheet({
+              title: 'Profil löschen?',
+              message: `„${entwurfProfil.name}" und seine Anordnung werden entfernt. Das lässt sich nicht rückgängig machen.`,
+              onConfirm: () => {
+                S.deleteProfile(entwurfProfil.id);
+                const p = S.homeProfile();
+                entwurfProfil = { id: p.id, name: p.name };
+                entwurf = p.widgets.map(w => ({ ...w, opts: { ...w.opts } }));
+                renderHome();
+                toast('Profil gelöscht');
+              },
+            });
+          },
+        }));
+      }
+    },
+  });
+}
+
+function askName(title, value, onDone) {
+  openSheet({
+    title,
+    confirm: 'Übernehmen',
+    build: (body) => {
+      const feld = textInput({ value, placeholder: 'Name', maxlength: 30 });
+      body.append(el('div', { class: 'field' }, [
+        el('span', { class: 'field-label', text: 'Name' }), feld,
+      ]));
+      setTimeout(() => feld.focus(), 300);
+      body._feld = feld;
+    },
+    onConfirm(body) {
+      const v = body._feld.value.trim();
+      if (!v) { body._feld.focus(); return false; }
+      onDone(v);
+    },
+  });
+}
+
+/* ---------- Widget hinzufügen ---------- */
+
+function openWidgetPicker() {
+  openSheet({
+    title: 'Widget hinzufügen',
+    build: (body, { close }) => {
+      for (const [bereich, typen] of widgetsByArea()) {
+        body.append(el('div', { class: 'w-pick-area', text: bereich }));
+        const liste = el('div', { class: 'group-card' });
+        for (const t of typen) {
+          const row = el('button', { class: 'setting tappable', type: 'button', dataset: { widget: t.id } }, [
+            el('div', { class: 'setting-body' }, [
+              el('div', { class: 'setting-title', text: t.label }),
+              el('div', { class: 'setting-desc', text: t.hint }),
+            ]),
+            el('span', { class: 'setting-value', text: t.sizes.map(x => SIZE_LABEL[x]).join(' · ') }),
+          ]);
+          row.addEventListener('click', () => { close(); chooseSize(t); });
+          liste.append(row);
+        }
+        body.append(liste);
+      }
+    },
+  });
+}
+
+/** Größe wählen – und, wo der Typ es braucht, das Ziel. */
+function chooseSize(typ) {
+  let size = typ.sizes.includes('wide') ? 'wide' : typ.sizes[0];
+  let ziel = null;
+
+  const auswahl = typ.needs === 'habit' ? S.habits().map(h => ({ id: h.id, label: `${h.emoji || ''} ${h.name}`.trim() }))
+    : typ.needs === 'list' ? S.lists().map(l => ({ id: l.id, label: `${l.emoji || '📋'} ${l.name}` }))
+    : null;
+
+  if (auswahl && !auswahl.length) {
+    toast(typ.needs === 'habit' ? 'Lege zuerst ein Habit an' : 'Lege zuerst eine Liste an');
+    return;
+  }
+  if (auswahl) ziel = auswahl[0].id;
+
+  openSheet({
+    title: typ.label,
+    confirm: 'Hinzufügen',
+    build: (body) => {
+      body.append(el('p', { class: 'field-hint', style: 'margin:-4px 0 14px', text: typ.hint }));
+
+      if (auswahl) {
+        const liste = el('div', { class: 'chips' });
+        const paint = () => {
+          for (const b of liste.children) b.setAttribute('aria-pressed', String(b.dataset.id === ziel));
+        };
+        for (const a of auswahl) {
+          const b = el('button', { type: 'button', class: 'chip', text: a.label, dataset: { id: a.id } });
+          b.addEventListener('click', () => { ziel = a.id; paint(); haptic(); });
+          liste.append(b);
+        }
+        paint();
+        body.append(el('div', { class: 'field' }, [
+          el('span', { class: 'field-label', text: typ.needs === 'habit' ? 'Welches Habit' : 'Welche Liste' }),
+          liste,
+        ]));
+      }
+
+      if (typ.sizes.length > 1) {
+        body.append(el('div', { class: 'field' }, [
+          el('span', { class: 'field-label', text: 'Größe' }),
+          segmented(typ.sizes.map(x => ({ id: x, label: SIZE_LABEL[x] })), size, (v) => { size = v; }),
+        ]));
+      }
+    },
+    onConfirm() {
+      if (!entwurf) return;
+      const opts = {};
+      if (typ.needs === 'habit') opts.habitId = ziel;
+      if (typ.needs === 'list') opts.listId = ziel;
+      entwurf.push({ id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+                     type: typ.id, size, opts });
+      renderHome();
+      // Ans Ende gescrollt, damit man sieht, was dazugekommen ist.
+      requestAnimationFrame(() => {
+        const sc = $('#home-scroll');
+        sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
+      });
+    },
+  });
 }

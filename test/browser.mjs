@@ -155,48 +155,95 @@ await step('startet auf der Startseite mit Begrüßung', async () => {
   if (!/Gute[nr]? (Morgen|Tag|Abend|Nacht)/.test(g)) throw new Error(`Begrüßung: ${g}`);
 });
 
-await step('Habits-Zahlen stimmen mit dem Bestand', async () => {
-  const o = await overview();
-  const card = await page.locator('#home-scroll .home-card').first().innerText();
-  if (!card.includes(String(o.habits.done)) || !card.includes(String(o.habits.due))) {
-    throw new Error(card.replace(/\n/g, ' | '));
+await step('die drei festen Zeilen stehen unter dem Raster', async () => {
+  const zeilen = await page.locator('#home-scroll [data-home]').evaluateAll(ns => ns.map(n => n.dataset.home));
+  const soll = ['Suchen', 'Einstellungen', 'Startseite bearbeiten'];
+  if (JSON.stringify(zeilen) !== JSON.stringify(soll)) throw new Error(zeilen.join(' | '));
+  // Sie dürfen nicht im Raster hängen, sonst wären sie mitverschiebbar.
+  if (await page.locator('#w-grid [data-home]').count()) throw new Error('Zeile im Raster');
+  const raster = await page.locator('#w-grid').boundingBox();
+  const erste = await page.locator('#home-scroll [data-home]').first().boundingBox();
+  if (erste.y < raster.y + raster.height) throw new Error('Zeilen liegen nicht unter dem Raster');
+});
+
+await step('das Raster zeigt genau die Widgets des Profils', async () => {
+  const soll = await page.evaluate(async () =>
+    (await import('/js/store.js')).homeProfile().widgets.map(w => [w.type, w.size]));
+  const ist = await page.locator('#w-grid .w-cell').evaluateAll(ns => ns.map(n =>
+    [n.dataset.type, [...n.classList].find(c => /^w-(small|wide|large)$/.test(c)).slice(2)]));
+  if (JSON.stringify(ist) !== JSON.stringify(soll)) {
+    throw new Error(`${JSON.stringify(ist)} statt ${JSON.stringify(soll)}`);
   }
-  const dots = await page.locator('.home-dot').count();
-  if (dots !== o.habits.due) throw new Error(`${dots} Punkte, ${o.habits.due} fällig`);
-  const filled = await page.locator('.home-dot.filled').count();
-  if (filled !== o.habits.done) throw new Error(`${filled} gefüllt, ${o.habits.done} erledigt`);
+  const txt = await page.locator('#w-grid').innerText();
+  for (const schlecht of ['Unbekanntes Widget', 'Lässt sich gerade nicht']) {
+    if (txt.includes(schlecht)) throw new Error(schlecht);
+  }
 });
 
-await step('Habits nach Rhythmus, Summe passt', async () => {
+await step('Habits heute nennt Stand und fällige Habits', async () => {
   const o = await overview();
-  const rows = await page.locator('.home-split-row').count();
-  if (rows !== o.habits.byInterval.length) throw new Error(`${rows} Zeilen, ${o.habits.byInterval.length} Intervalle`);
-  const sum = o.habits.byInterval.reduce((n, g) => n + g.due, 0);
-  if (sum !== o.habits.due) throw new Error(`Summe ${sum} ≠ fällig ${o.habits.due}`);
+  const karte = page.locator('.w-cell[data-type=habitsToday] .w-card');
+  const txt = await karte.innerText();
+  if (!txt.includes(`${o.habits.done}/${o.habits.due}`)) throw new Error(txt.replace(/\n/g, ' | '));
+  const zeilen = await karte.locator('.w-row').count();
+  if (zeilen !== Math.min(5, o.habits.due)) throw new Error(`${zeilen} Zeilen, ${o.habits.due} fällig`);
 });
 
-await step('To-dos-Kennzahlen rechnen auf', async () => {
+await step('im Widget abhaken schreibt in den Speicher', async () => {
+  const karte = page.locator('.w-cell[data-type=habitsToday] .w-card');
+  const name = await karte.locator('.w-row').first().locator('.w-row-title').innerText();
+  const wert = () => page.evaluate(async (n) => {
+    const S = await import('/js/store.js');
+    return S.progressIn(S.habits().find(h => h.name === n), S.today());
+  }, name);
+  const vor = await wert();
+  await karte.locator('.w-row').first().locator('.check').tap();
+  await wait(500);
+  const nach = await wert();
+  if (nach !== vor + 1) throw new Error(`${name}: ${vor} → ${nach}`);
+});
+
+await step('die Zeile im Widget wird aufgefrischt, nicht ersetzt', async () => {
+  // Sonst wäre das Aufleuchten mitten im Lauf abgeschnitten.
+  await page.evaluate(() => {
+    document.querySelector('.w-cell[data-type=habitsToday] .w-row').dataset.probe = 'ja';
+  });
+  await page.locator('.w-cell[data-type=habitsToday] .w-row').first().locator('.check').tap();
+  await wait(500);
+  if (!await page.locator('.w-cell[data-type=habitsToday] .w-row[data-probe=ja]').count()) {
+    throw new Error('Zeile neu gebaut');
+  }
+});
+
+await step('To-do-Bestand rechnet auf', async () => {
   const o = await overview();
+  const txt = await page.locator('.w-cell[data-type=todoStock] .w-card').innerText();
   const map = {};
-  for (const n of await page.locator('.home-stat').allInnerTexts()) {
-    const [v, l] = n.split('\n');
-    map[l] = Number(v);
+  for (const z of txt.split('\n')) {
+    const t = z.trim();
+    if (/^(offen|erledigt|überfällig)$/.test(t)) map._letzte = t;
+    else if (/^\d+$/.test(t)) map._zahl = Number(t);
+    if (map._letzte && map._zahl !== undefined) { map[map._letzte] = map._zahl; map._letzte = null; map._zahl = undefined; }
   }
-  const want = { insgesamt: o.todos.total, offen: o.todos.open, erledigt: o.todos.done, 'überfällig': o.todos.overdue.length };
-  for (const [l, v] of Object.entries(want)) if (map[l] !== v) throw new Error(`${l}: ${map[l]} statt ${v}`);
-  if (map.offen + map.erledigt !== map.insgesamt) throw new Error('Summe geht nicht auf');
+  const soll = { offen: o.todos.open, erledigt: o.todos.done, 'überfällig': o.todos.overdue.length };
+  for (const [k, v] of Object.entries(soll)) if (map[k] !== v) throw new Error(`${k}: ${map[k]} statt ${v}`);
+  if (map.offen + map.erledigt !== o.todos.total) throw new Error('Summe geht nicht auf');
 });
 
-await step('Überfällig antippen und dort abhaken', async () => {
-  const before = (await overview()).todos.overdue.length;
-  await page.locator('.home-bucket').filter({ hasText: 'Überfällig' }).tap();
-  await wait(450);
-  if (!await page.locator('.sheet-body .row').count()) throw new Error('Sheet leer');
-  await page.locator('.sheet-body .row .check').first().tap();
+await step('Antippen springt in den Bereich', async () => {
+  // Auf den Titel tippen, nicht in die Karte: dort sitzen die Abhak-Knöpfe.
+  await page.locator('.w-cell[data-type=todoOverdue] .w-title').tap();
+  await wait(500);
+  if (!await page.locator('#screen-todos').isVisible()) throw new Error('nicht bei den To-dos');
+  await page.locator('.tab[data-goto=home]').tap();
   await wait(400);
-  const after = (await overview()).todos.overdue.length;
-  if (after !== before - 1) throw new Error(`${before} → ${after}`);
+  await page.locator('.w-cell[data-type=planToday] .w-title').tap();
+  await wait(500);
+  if (!await page.locator('#screen-day').isVisible()) throw new Error('nicht im Tagesplan');
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(400);
 });
+
 await shot('01-start');
 
 /* ========================================================================== */
@@ -205,7 +252,7 @@ group('Suche');
 await step('findet über alle Bereiche, auch in Notizen', async () => {
   await page.locator('.tab[data-goto=home]').tap();
   await wait(300);
-  await page.locator('.home-tile').filter({ hasText: 'Suchen' }).tap();
+  await page.locator('[data-home=Suchen]').tap();
   await wait(450);
   for (const [q, want] of [['wasser', 'Wasser trinken'], ['einkauf', 'Einkaufen'],
                            ['vollkorn', 'Brot'], ['belege', 'Steuer sortieren'], ['dunkel', 'Design']]) {
@@ -646,7 +693,7 @@ await step('gelöschte To-do liegt im Papierkorb und kommt zurück', async () =>
 
   await page.locator('.tab[data-goto=home]').tap();
   await wait(320);
-  await page.locator('.home-tile').filter({ hasText: 'Einstellungen' }).tap();
+  await page.locator('[data-home=Einstellungen]').tap();
   await wait(450);
   await page.locator('[data-setting="trash"]').tap();
   await wait(450);
@@ -670,7 +717,7 @@ await step('endgültig löschen räumt den Papierkorb', async () => {
   });
   await page.locator('.tab[data-goto=home]').tap();
   await wait(300);
-  await page.locator('.home-tile').filter({ hasText: 'Einstellungen' }).tap();
+  await page.locator('[data-home=Einstellungen]').tap();
   await wait(450);
   await page.locator('[data-setting="trash"]').tap();
   await wait(450);
@@ -715,7 +762,7 @@ await step('Farbstärke ändert die Tönung sichtbar', async () => {
 await step('Suche findet trotz Tippfehler und markiert die Stelle', async () => {
   await page.locator('.tab[data-goto=home]').tap();
   await wait(320);
-  await page.locator('.home-tile').filter({ hasText: 'Suchen' }).tap();
+  await page.locator('[data-home=Suchen]').tap();
   await wait(420);
   await page.locator('#search-input').fill('Vitmine');
   await wait(420);
@@ -1422,6 +1469,328 @@ await step('Liste wählen schränkt die Auswahl ein', async () => {
 });
 
 /* ========================================================================== */
+group('Startseite bearbeiten');
+
+/** Zurück auf die Startseite und in den Bearbeiten-Modus. */
+async function startEdit() {
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(400);
+  if (!await page.locator('[data-home="Startseite bearbeiten"]').count()) return;   // schon drin
+  await page.locator('[data-home="Startseite bearbeiten"]').tap();
+  await wait(450);
+}
+
+const zellen = () => page.locator('#w-grid .w-cell').count();
+const gespeichert = () => page.evaluate(async () =>
+  (await import('/js/store.js')).homeProfile().widgets.map(w => w.type));
+
+await step('Bearbeiten-Modus: feste Zeilen weg, Leiste da', async () => {
+  await seed();
+  await startEdit();
+  if (await page.locator('#home-scroll [data-home]').count()) throw new Error('feste Zeilen noch da');
+  if (!await page.locator('#home-editbar').isVisible()) throw new Error('keine Leiste');
+  if (!await page.evaluate(() => document.body.classList.contains('is-editing-home'))) {
+    throw new Error('Kennzeichen am body fehlt');
+  }
+  const kopf = await page.locator('#home-greeting').innerText();
+  if (!kopf.includes('bearbeiten')) throw new Error(`Kopf: ${kopf}`);
+  if (!(await page.locator('#home-date').innerText()).includes('Profil')) throw new Error('kein Profilname');
+  for (const b of ['Profil', '+ Widget', 'Abbrechen', 'Speichern']) {
+    if (!await page.locator('#home-editbar .btn').filter({ hasText: b }).count()) throw new Error(`${b} fehlt`);
+  }
+});
+
+await step('das letzte Widget liegt nicht hinter der Leiste', async () => {
+  await page.locator('#home-scroll').evaluate(n => n.scrollTo({ top: n.scrollHeight }));
+  await wait(450);
+  const letzte = await page.locator('#w-grid .w-cell').last().boundingBox();
+  const leiste = await page.locator('#home-editbar').boundingBox();
+  // 8 px Luft für den Größen-Knopf, der unten aus der Zelle hängt.
+  if (letzte.y + letzte.height + 8 > leiste.y) {
+    throw new Error(`Widget endet bei ${Math.round(letzte.y + letzte.height)}, Leiste beginnt bei ${Math.round(leiste.y)}`);
+  }
+});
+
+await step('Größe umstellen wechselt durch die möglichen Größen', async () => {
+  await page.locator('#home-scroll').evaluate(n => n.scrollTo({ top: 0 }));
+  await wait(300);
+  const groesse = () => page.locator('#w-grid .w-cell').first()
+    .evaluate(n => [...n.classList].find(c => /^w-(small|wide|large)$/.test(c)));
+  const vor = await groesse();
+  const moeglich = await page.evaluate(async () => {
+    const W = await import('/js/widgets.js');
+    const S = await import('/js/store.js');
+    return W.widgetType(S.homeProfile().widgets[0].type).sizes;
+  });
+  const gesehen = new Set([vor]);
+  for (let i = 0; i < moeglich.length; i++) {
+    await page.locator('#w-grid .w-cell').first().locator('.w-resize').tap();
+    await wait(320);
+    gesehen.add(await groesse());
+  }
+  if (gesehen.size !== moeglich.length) throw new Error(`${[...gesehen]} statt ${moeglich}`);
+});
+
+await step('✕ entfernt, gespeichert wird erst auf Knopfdruck', async () => {
+  const vorher = await zellen();
+  const vorSpeicher = await gespeichert();
+  await page.locator('#w-grid .w-cell').first().locator('.w-remove').tap();
+  await wait(350);
+  if (await zellen() !== vorher - 1) throw new Error(`${await zellen()} statt ${vorher - 1}`);
+  if (JSON.stringify(await gespeichert()) !== JSON.stringify(vorSpeicher)) {
+    throw new Error('schon im Speicher gelandet');
+  }
+});
+
+await step('Abbrechen fragt nach und stellt wieder her', async () => {
+  // Erst etwas ändern – ohne Änderung fragt Abbrechen zu Recht nicht nach.
+  await page.locator('#w-grid .w-cell').first().locator('.w-remove').tap();
+  await wait(350);
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Abbrechen' }).tap();
+  await wait(500);
+  if (!await page.locator('#sheet-host .sheet').isVisible()) throw new Error('keine Rückfrage');
+  await page.locator('.sheet .btn').filter({ hasText: 'Verwerfen' }).tap();
+  await wait(550);
+  if (!await page.locator('[data-home="Startseite bearbeiten"]').count()) throw new Error('Modus nicht beendet');
+  const soll = await gespeichert();
+  const ist = await page.locator('#w-grid .w-cell').evaluateAll(ns => ns.map(n => n.dataset.type));
+  if (JSON.stringify(ist) !== JSON.stringify(soll)) throw new Error(`${ist} statt ${soll}`);
+});
+
+await step('Widget hinzufügen, Größe wählen, speichern', async () => {
+  await startEdit();
+  const vorher = await zellen();
+  await page.locator('#home-editbar .btn').filter({ hasText: '+ Widget' }).tap();
+  await wait(500);
+  // Das Stylesheet setzt die Bereiche in Großbuchstaben; verglichen wird
+  // deshalb ohne Rücksicht auf Groß und Klein.
+  const bereiche = (await page.locator('.sheet .w-pick-area').allInnerTexts())
+    .map(x => x.trim().toLowerCase());
+  for (const b of ['habits', 'to-dos', 'planung', 'kalender', 'allgemein']) {
+    if (!bereiche.includes(b)) throw new Error(`Bereich ${b} fehlt: ${bereiche}`);
+  }
+  await page.locator('.sheet [data-widget=weekAhead]').tap();
+  await wait(500);
+  await page.locator('.sheet .segmented button').filter({ hasText: 'Groß' }).tap();
+  await wait(220);
+  await page.locator('.sheet-head button.strong').tap();
+  await wait(550);
+  if (await zellen() !== vorher + 1) throw new Error(`${await zellen()} statt ${vorher + 1}`);
+  const letzte = await page.locator('#w-grid .w-cell').last().evaluate(n => [n.dataset.type, n.className]);
+  if (letzte[0] !== 'weekAhead' || !letzte[1].includes('w-large')) throw new Error(letzte.join(' '));
+
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Speichern' }).tap();
+  await wait(600);
+  if (!await page.locator('[data-home="Startseite bearbeiten"]').count()) throw new Error('Modus nicht beendet');
+  const soll = await gespeichert();
+  if (soll[soll.length - 1] !== 'weekAhead') throw new Error(`gespeichert: ${soll}`);
+});
+
+await step('ein Widget mit Ziel fragt nach dem Ziel', async () => {
+  await startEdit();
+  await page.locator('#home-editbar .btn').filter({ hasText: '+ Widget' }).tap();
+  await wait(500);
+  await page.locator('.sheet [data-widget=singleHabit]').tap();
+  await wait(500);
+  const chips = await page.locator('.sheet .chips .chip').allInnerTexts();
+  if (chips.length !== 5) throw new Error(`${chips.length} Habits zur Wahl`);
+  await page.locator('.sheet .chips .chip').nth(2).tap();
+  await wait(220);
+  await page.locator('.sheet-head button.strong').tap();
+  await wait(550);
+  const opts = await page.locator('#w-grid .w-cell').last().evaluate(n => n.dataset.type);
+  if (opts !== 'singleHabit') throw new Error(opts);
+  const karte = await page.locator('#w-grid .w-cell').last().innerText();
+  if (!karte.includes('Laufen')) throw new Error(karte.replace(/\n/g, ' | '));
+});
+
+await step('halten und ziehen ordnet das Raster um', async () => {
+  await page.locator('#home-scroll').evaluate(n => n.scrollTo({ top: 0 }));
+  await wait(300);
+  const vor = await page.locator('#w-grid .w-cell').evaluateAll(ns => ns.map(n => n.dataset.type));
+  const b = await page.locator('#w-grid .w-cell').first().boundingBox();
+  await touch('touchStart', b.x + b.width / 2, b.y + 20);
+  await wait(650);
+  if (!await page.evaluate(() => document.body.classList.contains('is-dragging'))) {
+    throw new Error('nicht angehoben');
+  }
+  if (!await page.locator('.drag-placeholder').count()) throw new Error('kein Platzhalter');
+  // Weit nach unten, über das zweite Widget hinaus.
+  for (let i = 1; i <= 12; i++) {
+    await touch('touchMove', b.x + b.width / 2, b.y + 20 + i * 26);
+    await wait(16);
+  }
+  await touch('touchEnd', 0, 0);
+  await wait(650);
+  const nach = await page.locator('#w-grid .w-cell').evaluateAll(ns => ns.map(n => n.dataset.type));
+  if (JSON.stringify(nach) === JSON.stringify(vor)) throw new Error(`unverändert: ${vor}`);
+  if (nach.length !== vor.length) throw new Error(`${nach.length} statt ${vor.length} Widgets`);
+  if ([...nach].sort().join() !== [...vor].sort().join()) throw new Error('Widget verloren');
+  const top = await page.evaluate(() => document.querySelector('#home-scroll').scrollTop);
+  if (top > 20) throw new Error(`hat beim Ziehen gescrollt (${top} px)`);
+});
+
+await step('im Bearbeiten-Modus ist der Inhalt nur Bild', async () => {
+  // Gedrückthalten auf einem Abhak-Knopf muss das Verschieben anstoßen,
+  // nicht den Knopf drücken.
+  const treffer = await page.locator('#w-grid .w-cell').first().evaluate((zelle) => {
+    const b = zelle.getBoundingClientRect();
+    const n = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+    return n === zelle || zelle === n?.closest('.w-cell') ? (n.className || n.tagName) : 'daneben';
+  });
+  if (/check|w-quick-btn/.test(String(treffer))) throw new Error(`Knopf erreichbar: ${treffer}`);
+});
+
+await step('Reiterwechsel im Bearbeiten-Modus fragt nach', async () => {
+  await page.locator('.tab[data-goto=habits]').tap();
+  await wait(500);
+  if (!await page.locator('#sheet-host .sheet').isVisible()) throw new Error('keine Rückfrage');
+  if (!await page.locator('#screen-home').isVisible()) throw new Error('schon gewechselt');
+  await page.locator('.sheet .btn').filter({ hasText: 'Verwerfen' }).tap();
+  await wait(600);
+  if (!await page.locator('#screen-habits').isVisible()) throw new Error('nicht gewechselt');
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(450);
+  // Die festen Zeilen sind wieder da – sonst käme man nicht in die Einstellungen.
+  if (!await page.locator('[data-home=Einstellungen]').count()) throw new Error('Modus hält noch an');
+});
+
+await step('Profile: neu, wechseln, umbenennen, löschen', async () => {
+  await startEdit();
+  const profile = () => page.evaluate(async () =>
+    (await import('/js/store.js')).homeProfiles().map(p => p.name));
+
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Profil' }).tap();
+  await wait(450);
+  await page.locator('#dropup-host .dropup-item').filter({ hasText: 'Neues Profil' }).tap();
+  await wait(450);
+  await page.locator('.sheet .input').fill('Abend');
+  await page.locator('.sheet-head button.strong').tap();
+  await wait(550);
+  if (!(await profile()).includes('Abend')) throw new Error(`Profile: ${await profile()}`);
+  if (await zellen() !== 0) throw new Error('neues Profil nicht leer');
+  if (!(await page.locator('#home-date').innerText()).includes('Abend')) throw new Error('Kopf zeigt nicht das neue Profil');
+
+  // Umbenennen
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Profil' }).tap();
+  await wait(450);
+  await page.locator('#dropup-host .dropup-item').filter({ hasText: 'umbenennen' }).tap();
+  await wait(450);
+  await page.locator('.sheet .input').fill('Nacht');
+  await page.locator('.sheet-head button.strong').tap();
+  await wait(550);
+  if (!(await profile()).includes('Nacht')) throw new Error(`Profile: ${await profile()}`);
+
+  // Zurück zum ersten Profil – dort stehen wieder Widgets
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Profil' }).tap();
+  await wait(450);
+  await page.locator('#dropup-host .dropup-item').filter({ hasText: 'Startseite' }).first().tap();
+  await wait(600);
+  if (await zellen() === 0) throw new Error('Wechsel hat nichts geladen');
+
+  // Löschen ist nur da, solange es mehr als eines gibt
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Profil' }).tap();
+  await wait(450);
+  if (!await page.locator('#dropup-host .dropup-item').filter({ hasText: 'löschen' }).count()) {
+    throw new Error('Löschen fehlt');
+  }
+  await clearOverlays();
+
+  // Kopieren legt eine zweite Fassung mit demselben Inhalt an
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Profil' }).tap();
+  await wait(450);
+  await page.locator('#dropup-host .dropup-item').filter({ hasText: 'kopieren' }).tap();
+  await wait(600);
+  const namen = await profile();
+  if (!namen.some(n => n.includes('Kopie'))) throw new Error(`Profile: ${namen}`);
+});
+
+await step('das letzte Profil lässt sich nicht löschen', async () => {
+  const uebrig = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    for (const p of S.homeProfiles().slice(1)) S.deleteProfile(p.id);
+    const ok = S.deleteProfile(S.homeProfiles()[0].id);
+    return { anzahl: S.homeProfiles().length, ok };
+  });
+  if (uebrig.ok || uebrig.anzahl !== 1) throw new Error(JSON.stringify(uebrig));
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Profil' }).tap();
+  await wait(450);
+  if (await page.locator('#dropup-host .dropup-item').filter({ hasText: 'löschen' }).count()) {
+    throw new Error('Löschen trotzdem angeboten');
+  }
+  await clearOverlays();
+  await page.locator('#home-editbar .btn').filter({ hasText: 'Abbrechen' }).tap();
+  await wait(550);
+  await clearOverlays();
+});
+
+await step('jeder Widget-Typ zeichnet in jeder seiner Größen', async () => {
+  await seed();
+  const vorher = errors.length;
+  const kaputt = [];
+  const typen = await page.evaluate(async () =>
+    (await import('/js/widgets.js')).WIDGETS.map(w => ({ id: w.id, sizes: w.sizes, needs: w.needs || '' })));
+  for (const t of typen) {
+    for (const size of t.sizes) {
+      const txt = await page.evaluate(async ({ t, size }) => {
+        const S = await import('/js/store.js');
+        const H = await import('/js/home.js');
+        S.setWidgets(S.homeProfile().id, [{
+          id: 'probe', type: t.id, size,
+          opts: t.needs === 'habit' ? { habitId: S.habits()[0].id }
+              : t.needs === 'list' ? { listId: S.lists()[0].id } : {},
+        }]);
+        H.renderHome();
+        return document.querySelector('#w-grid').innerText;
+      }, { t, size });
+      if (/Unbekanntes Widget|Lässt sich gerade nicht/.test(txt)) kaputt.push(`${t.id}/${size}`);
+      if (!txt.trim()) kaputt.push(`${t.id}/${size}: leer`);
+    }
+  }
+  if (kaputt.length) throw new Error(kaputt.join(', '));
+  if (errors.length !== vorher) throw new Error(errors.slice(vorher).join(' · '));
+});
+
+await step('ein Widget ohne Ziel verschwindet mit seinem Ziel', async () => {
+  const uebrig = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const h = S.habits()[0];
+    S.setWidgets(S.homeProfile().id, [
+      { id: 'w1', type: 'singleHabit', size: 'wide', opts: { habitId: h.id } },
+      { id: 'w2', type: 'habitsToday', size: 'wide', opts: {} },
+    ]);
+    S.deleteHabit(h.id);
+    S.flush();
+    S.load();
+    return S.homeProfile().widgets.map(w => w.type);
+  });
+  if (JSON.stringify(uebrig) !== JSON.stringify(['habitsToday'])) throw new Error(uebrig.join(', '));
+});
+
+await step('ein unbekannter Typ bleibt stehen statt zu verschwinden', async () => {
+  const txt = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const H = await import('/js/home.js');
+    S.setWidgets(S.homeProfile().id, [{ id: 'w9', type: 'ausDerZukunft', size: 'wide', opts: {} }]);
+    H.renderHome();
+    return document.querySelector('#w-grid').innerText;
+  });
+  if (!txt.includes('Unbekanntes Widget')) throw new Error(txt.replace(/\n/g, ' | '));
+});
+
+await step('ohne Widgets erklärt die Startseite den Weg', async () => {
+  const txt = await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const H = await import('/js/home.js');
+    S.setWidgets(S.homeProfile().id, []);
+    H.renderHome();
+    return document.querySelector('#home-scroll').innerText;
+  });
+  if (!txt.includes('Keine Widgets')) throw new Error(txt.replace(/\n/g, ' | '));
+  if (!txt.includes('Startseite bearbeiten')) throw new Error('feste Zeilen fehlen');
+});
+
+/* ========================================================================== */
 group('Datenerhalt');
 
 await step('Neustart verändert nichts', async () => {
@@ -1554,13 +1923,55 @@ await step('Abhak-Knopf trifft auf 44 pt, auch bei kleinen Zeilen', async () => 
   if (bad.length) throw new Error(bad.join(' · '));
 });
 
+await step('Abhak-Knöpfe im Widget greifen nicht in die Nachbarzeile', async () => {
+  /* Im Widget stehen die Zeilen enger als in der Liste. Reichte die
+     Trefferfläche über die Zeile hinaus, hätte ein Tipp am Rand die falsche
+     Sache abgehakt – und zwar still. */
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(350);
+  await page.evaluate(async () => {
+    const S = await import('/js/store.js');
+    const H = await import('/js/home.js');
+    S.setWidgets(S.homeProfile().id, [{ id: 'p1', type: 'habitsToday', size: 'large', opts: {} }]);
+    H.renderHome();
+  });
+  await wait(350);
+  const falsch = await page.evaluate(() => {
+    const out = [];
+    const rows = [...document.querySelectorAll('.w-cell[data-type=habitsToday] .w-row')];
+    if (rows.length < 2) return ['zu wenige Zeilen'];
+    for (const row of rows) {
+      const c = row.querySelector('.check');
+      const r = c.getBoundingClientRect();
+      const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+      for (const dy of [-18, -8, 0, 8, 18]) {
+        const hit = document.elementFromPoint(cx, cy + dy)?.closest('.check');
+        // Innerhalb der eigenen Zeile getroffen oder gar nichts – nur nicht
+        // der Knopf einer anderen Zeile.
+        if (hit && hit !== c) out.push(`${row.innerText.split('\n')[0]} @${dy}`);
+      }
+    }
+    return out;
+  });
+  if (falsch.length) throw new Error(falsch.join(' · '));
+});
+
 await step('Tippziele mindestens 28px', async () => {
+  /* Gemessen wird nicht der sichtbare Kreis, sondern was beim Tippen wirklich
+     getroffen wird: Manche Knöpfe sind absichtlich klein gezeichnet und
+     vergrößern ihre Fläche über ein unsichtbares ::before. */
   const small = await page.evaluate(() => {
     const out = [];
     for (const b of document.querySelectorAll('button:not([hidden]), input.emoji-box')) {
       const r = b.getBoundingClientRect();
       if (r.width === 0 || b.classList.contains('swipe-action')) continue;
-      if (r.width < 28 || r.height < 28) out.push(`${b.className || b.id}: ${Math.round(r.width)}x${Math.round(r.height)}`);
+      if (r.width >= 28 && r.height >= 28) continue;
+      const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+      const trifft = ([dx, dy]) => document.elementFromPoint(cx + dx, cy + dy)?.closest('button') === b;
+      // 28 px heißt: 14 px in jede Richtung ab der Mitte.
+      if (![[-13, 0], [13, 0], [0, -13], [0, 13]].every(trifft)) {
+        out.push(`${b.className || b.id}: ${Math.round(r.width)}x${Math.round(r.height)}`);
+      }
     }
     return out;
   });
@@ -1570,22 +1981,27 @@ await step('Tippziele mindestens 28px', async () => {
 await step('keine Einstellung quetscht ihren Beschreibungstext', async () => {
   // Ein breites Bedienelement daneben ließ der Beschreibung einmal eine Spalte
   // von der Breite eines Wortes. Geprüft wird die tatsächliche Textbreite.
-  await page.locator('.tab[data-goto=home]').tap();
-  await wait(320);
-  await page.locator('.home-tile').filter({ hasText: 'Einstellungen' }).tap();
-  await wait(500);
-  const eng = await page.evaluate(() => [...document.querySelectorAll('.setting-desc')]
+  /* Nur der sichtbare Bildschirm zählt: Ein verborgener misst überall 0 px.
+     Die Startseite trägt dieselben Zeilen, also wird sie mitgeprüft. */
+  const messe = () => page.evaluate(() => [...document.querySelectorAll('.screen.active .setting-desc')]
     .map(n => ({ w: Math.round(n.getBoundingClientRect().width),
                  t: n.textContent.slice(0, 26) }))
     .filter(x => x.w < 150)
     .map(x => `${x.w}px: „${x.t}…"`));
+
+  await page.locator('.tab[data-goto=home]').tap();
+  await wait(320);
+  const eng = await messe();
+  await page.locator('[data-home=Einstellungen]').tap();
+  await wait(500);
+  eng.push(...await messe());
   if (eng.length) throw new Error(eng.join(' · '));
 });
 
 await step('dunkles Design auf allen Bildschirmen', async () => {
   await page.locator('.tab[data-goto=home]').tap();
   await wait(300);
-  await page.locator('.home-tile').filter({ hasText: 'Einstellungen' }).tap();
+  await page.locator('[data-home=Einstellungen]').tap();
   await wait(400);
   await page.locator('.segmented button', { hasText: 'Dunkel' }).tap();
   await wait(300);
@@ -1621,7 +2037,7 @@ await step('dunkles Design auf allen Bildschirmen', async () => {
         }
         return null;       // unbekannte Schreibweise – lieber nicht raten
       };
-      const flaechen = [schirm, ...schirm.querySelectorAll('.row, .card, .home-card, .group-card, .day-block, .cal-day')]
+      const flaechen = [schirm, ...schirm.querySelectorAll('.row, .card, .w-card, .group-card, .day-block, .cal-day')]
         .slice(0, 40)
         .map(n => helligkeit(getComputedStyle(n).backgroundColor))
         .filter(v => v !== null);

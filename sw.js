@@ -4,7 +4,7 @@
    aktualisieren. Nutzerdaten liegen in localStorage und sind hiervon
    vollständig unberührt. */
 
-const VERSION = 'planer-v13';
+const VERSION = 'planer-v14';
 const ASSETS = [
   './',
   './index.html',
@@ -23,6 +23,7 @@ const ASSETS = [
   './js/emoji.js',
   './js/emoji-data.js',
   './js/home.js',
+  './js/widgets.js',
   './js/search.js',
   './js/settings.js',
   './icons/apple-touch-icon.png',

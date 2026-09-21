@@ -31,18 +31,49 @@ oder Dateien ablegen lässt und über **Daten wiederherstellen** zurückkommt.
 ## Funktionen
 
 **Startseite**
-- Habits heute: erledigt von fällig, Fortschrittsbalken und ein Punkt je Habit.
-  Darunter nach Rhythmus aufgeschlüsselt – wie viele Habits es täglich, an
-  bestimmten Tagen, pro Woche und pro Monat gibt und wie viele davon in der
-  laufenden Periode schon erfüllt sind. Ein Rhythmus, der heute nicht dran ist,
-  steht als „frei"; Antippen öffnet die Gruppe im Habits-Reiter
-- To-dos: zuerst der Bestand (insgesamt, offen, erledigt, überfällig – letztes
-  in Warnfarbe), darunter nach Fälligkeit aufgeteilt in überfällig, heute,
-  morgen und diese Woche – innerhalb eines Korbs nach Datum sortiert, bei
-  „Überfällig" also das Älteste zuerst. Jede Zeile öffnet die betroffenen
-  To-dos, direkt abhakbar. Die Fußzeile nennt To-dos ohne Datum, spätere und die Listenzahl
-- Laufende Serien der längsten drei Habits
-- Kacheln für Suche und Einstellungen
+
+Die Startseite wird selbst zusammengestellt. Oben ein Raster aus Widgets, unten
+drei Zeilen, die nie verschwinden: **Suchen**, **Einstellungen** und
+**Startseite bearbeiten**. Die drei liegen außerhalb des Rasters – beim
+Umsortieren können sie deshalb nicht mitwandern und nicht verloren gehen.
+
+*Drei Größen*, angelehnt an das, was auf ein Telefon passt:
+
+| Größe | Raster | wofür |
+|---|---|---|
+| Klein | eine Spalte, quadratisch | eine Zahl, ein Ring |
+| Breit | zwei Spalten, flach | eine Zahl mit Zusatz, wenige Zeilen |
+| Groß | zwei Spalten, hoch | mehrere Zeilen mit Abhak-Knopf |
+
+*16 Widgets* über alle Bereiche:
+
+- **Habits** – Habits heute (Ring, Punkte oder die fälligen Habits zum
+  Abhaken), Habits nach Rhythmus, Laufende Serien, Ein Habit (ein bestimmtes,
+  mit Fortschritt und Serie), Habit-Verlauf (die letzten Wochen als Raster)
+- **To-dos** – Überfällig, Heute fällig, To-do-Bestand, Eine Liste,
+  Als Nächstes fällig
+- **Planung** – Plan heute, Als Nächstes im Plan, Verplante Zeit
+- **Kalender** – Monat im Kleinen (mit rotem Kreis um heute), Die nächsten
+  sieben Tage
+- **Allgemein** – Schnell anlegen (Habit, To-do, Plan-Eintrag), Heute geschafft
+
+*Bedienung* – Antippen springt in den Bereich, zu dem das Widget gehört; wo es
+einzelne Zeilen zeigt, steht rechts der gewohnte Abhak-Knopf mit demselben
+Aufleuchten wie in den Listen. Abgehakt wird dabei nur die Zeile aufgefrischt,
+nicht das ganze Widget – sonst wäre das Aufleuchten mitten im Lauf
+abgeschnitten.
+
+*Bearbeiten* – **Startseite bearbeiten** lässt die Widgets leicht wackeln. Ein
+Widget **gedrückt halten und ziehen** verschiebt es, wie beim Sortieren von
+Habits und To-dos. ✕ entfernt es, der Knopf rechts unten wechselt durch die
+Größen, die der Typ kann. Gearbeitet wird auf einer Kopie: Erst **Speichern**
+übernimmt die Anordnung, **Abbrechen** wirft sie weg. Wer in einen anderen
+Reiter wechselt, wird vorher gefragt – ohne die drei festen Zeilen käme man
+sonst nicht mehr in die Einstellungen.
+
+*Profile* – Über **Profil** in der Bearbeiten-Leiste: wechseln, neu anlegen,
+kopieren, umbenennen, löschen (bis zu acht; das letzte bleibt). Umgeschaltet
+wird nur im Bearbeiten-Modus, damit die Startseite selbst ruhig bleibt.
 
 Alle Zahlen kommen aus `store.overview()`. „Fällig" heißt dort, dass ein Habit
 heute grundsätzlich ansteht – nicht, dass es noch in der Liste steht. Sonst
@@ -244,7 +275,8 @@ js/habitDetail.js       Statistiken, Kalender, Balken
 js/todos.js             Listen, Reiterleiste, Drop-up, To-dos
 js/drag.js              Umsortieren per Finger, mit und ohne Einrücken
 js/swipe.js             Wischen nach rechts zum Ein- und Ausrücken
-js/home.js              Startseite mit dem Überblick
+js/home.js              Startseite: Raster, Bearbeiten-Modus, Profile
+js/widgets.js           Katalog aller Widget-Typen
 js/calendar.js          Monatsraster, Tagesplan, Einplanen
 js/search.js            Freie Suche über alle Bereiche
 js/emoji.js             Emoji-Suche mit deutschem Wortstamm-Abgleich
@@ -295,11 +327,14 @@ Kennungen. Bisher:
 - `toSchema4` – ein Ziel pro Intervall statt Tagesziel *und* Tage-pro-Woche.
   „20 Seiten an 3 Tagen pro Woche" wird „60 Seiten pro Woche"; die erfassten
   Tageswerte bleiben unverändert und werden ab dann über das Intervall summiert.
-- `toSchema5` – nichts umzubauen: Der Papierkorb kommt als leeres Feld dazu.
-  Die Stufe existiert trotzdem, damit ein älterer Stand einmal durch die
-  Bereinigung läuft und danach die neue Nummer trägt.
-- `toSchema6` – ebenso für die Planung (`plans`). Bestehende Habits und
-  To-dos bleiben unangetastet; geplant ist zunächst nichts.
+- Schema 5, 6 und 7 bauen nichts um – sie bringen nur neue Felder: den
+  Papierkorb (`trash`), die Planung (`plans`) und die Startseiten-Profile
+  (`homeProfiles`). Eine eigene Umbaufunktion brauchen sie nicht; die
+  Bereinigung beim Laden ergänzt und prüft die Felder ohnehin. Die Nummern
+  existieren trotzdem, damit ein älterer Stand einmal durch die Bereinigung
+  läuft und danach die neue trägt. Bestehende Habits und To-dos bleiben
+  unangetastet; ein Stand ohne Profil bekommt das vorgegebene, denn ein Profil
+  gibt es immer.
 
 Wer eine Migration ergänzt, zählt `SCHEMA` hoch und hängt einen Schritt an. Die
 Tests prüfen die ganze Kette von einem Stand ohne Versionsnummer bis heute,
@@ -348,6 +383,43 @@ nimmt ihre Plan-Einträge mit in den Papierkorb und bringt sie beim
 Wiederherstellen zurück. Muss dabei eine Kennung neu vergeben werden, ziehen
 die Einträge mit um (`putPlansBack`) – ohne das zeigten sie ins Leere.
 
+## Das Widget-System
+
+Drei Dateien, mit einer klaren Grenze dazwischen:
+
+- **`js/store.js`** hält die Profile. Ein Profil ist `{ id, name, widgets }`,
+  ein Widget `{ id, type, size, opts }`. Nichts davon weiß, wie ein Widget
+  aussieht.
+- **`js/widgets.js`** ist der Katalog. Jeder Typ beschreibt sich selbst: Name,
+  Bereich, welche Größen er kann, ob er ein Ziel braucht (`needs: 'habit'` oder
+  `'list'`) – und wie er gezeichnet wird. Ein neuer Typ braucht genau einen
+  Eintrag hier, sonst nichts.
+- **`js/home.js`** ordnet an, verschiebt und speichert. Sie kennt **keinen
+  einzigen Widget-Typ**.
+
+Drei Entscheidungen, die sich im Betrieb bewährt haben:
+
+**Ein unbekannter Typ bleibt stehen.** Eine Sicherung aus einer neueren Fassung
+kann Typen enthalten, die diese Fassung nicht kennt. Statt sie beim Bereinigen
+still zu verwerfen – und damit die Anordnung unwiederbringlich zu beschneiden –
+erscheinen sie als „Unbekanntes Widget". Wer die App aktualisiert, hat sie
+wieder.
+
+**Ein Widget darf die Startseite nicht mitnehmen.** `typ.build(ctx)` läuft in
+`try/catch`. Ein Fehler in einem Typ kostet diese eine Karte, nicht den ganzen
+Bildschirm.
+
+**Ein Widget ohne Ziel verschwindet.** Wird das Habit gelöscht, auf das ein
+`singleHabit` zeigt, räumt `pruneWidgetTargets` beim Laden auf. Sonst stünde
+dort dauerhaft eine Karte, die nichts anzeigen kann.
+
+Im Bearbeiten-Modus trägt die Karte `pointer-events: none`. Ohne diesen Riegel
+würde das Gedrückthalten auf einem Abhak-Knopf dort ankommen statt beim
+Verschieben; die Ereignisse fallen so auf die Zelle zurück, wo die Geste hängt.
+✕ und der Größen-Knopf liegen daneben, nicht darin, und bleiben deshalb
+bedienbar. Gewackelt wird die Karte, nicht die Zelle – ein mitwanderndes
+Tippziel trifft sich schlecht.
+
 ## Die Zeile
 
 Habits und To-dos teilen sich denselben Zeilenaufbau, und für beide gilt
@@ -395,8 +467,9 @@ node test/browser.mjs           # Bedienung im iPhone-Format
 ```
 
 `test/browser.mjs` startet einen eigenen Dateiserver und fährt die App im
-iPhone-14-Format durch: Startseite, Suche, Editoren, Unter-To-dos, Aufleuchten,
-Gesten, Datenerhalt und Layout. Zwei Arten von Eingaben – mit dem Zeiger
+iPhone-14-Format durch: Startseite, Widgets und ihr Bearbeiten-Modus, Suche,
+Editoren, Unter-To-dos, Aufleuchten, Gesten, Kalender und Planung, Datenerhalt
+und Layout. Zwei Arten von Eingaben – mit dem Zeiger
 (schnell, deckt die Logik ab) und mit **echten Berührungen** über das
 Debug-Protokoll. Das zweite ist unverzichtbar: `touch-action` wirkt nur bei
 echten Berührungen, und genau dort ist das Sortieren per Ziehen schon einmal

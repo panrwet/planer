@@ -1335,5 +1335,159 @@ test('unvollständige Daten werden ergänzt statt zu brechen', () => {
   assert.deepEqual(S.getData().todos, []);
 });
 
+console.log('\nStartseite: Profile und Widgets');
+test('leerer Stand hat schon ein Profil', () => {
+  // Beim allerersten Start wird nicht migriert. Ohne Profil hätte die
+  // Startseite nichts anzuzeigen und wäre beim Zeichnen gestolpert.
+  S._setData({});
+  assert.equal(S.homeProfiles().length, 1);
+  assert.ok(S.homeProfile());
+  assert.ok(S.homeProfile().widgets.length > 0);
+});
+
+test('Widgets werden geprüft, nicht blind übernommen', () => {
+  S._setData({});
+  const id = S.homeProfile().id;
+  S.setWidgets(id, [
+    { type: 'habitsToday', size: 'large' },
+    { type: 'todoStock', size: 'riesig' },        // unbekannte Größe
+    { size: 'wide' },                             // ohne Typ
+    'quatsch',
+    { type: 'ausDerZukunft', size: 'wide' },      // unbekannter Typ: bleibt
+  ]);
+  const w = S.homeProfile().widgets;
+  assert.deepEqual(w.map(x => x.type), ['habitsToday', 'todoStock', 'ausDerZukunft']);
+  assert.equal(w[1].size, 'wide');                // auf die Vorgabe gesetzt
+  assert.ok(w.every(x => x.id && typeof x.opts === 'object'));
+});
+
+test('jedes Widget bekommt eine eigene Kennung', () => {
+  S._setData({});
+  S.setWidgets(S.homeProfile().id, [
+    { id: 'gleich', type: 'habitsToday', size: 'wide' },
+    { id: 'gleich', type: 'todoStock', size: 'wide' },
+  ]);
+  const ids = S.homeProfile().widgets.map(w => w.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test('Profil anlegen, umbenennen, kopieren, löschen', () => {
+  S._setData({});
+  const erst = S.homeProfile().id;
+  const neu = S.addProfile('Abend');
+  assert.equal(S.homeProfile().id, neu.id);       // das neue ist gleich aktiv
+  assert.deepEqual(neu.widgets, []);
+
+  S.setWidgets(neu.id, [{ type: 'planToday', size: 'wide' }]);
+  const kopie = S.duplicateProfile(neu.id);
+  assert.match(kopie.name, /Kopie/);
+  assert.deepEqual(kopie.widgets.map(w => w.type), ['planToday']);
+  // Die Kopie muss eigene Widget-Kennungen haben, sonst zeigen beide Profile
+  // auf dasselbe Widget.
+  assert.notEqual(kopie.widgets[0].id, S.homeProfiles().find(p => p.id === neu.id).widgets[0].id);
+
+  assert.equal(S.renameProfile(neu.id, '  Nacht  '), true);
+  assert.equal(S.homeProfiles().find(p => p.id === neu.id).name, 'Nacht');
+  assert.equal(S.renameProfile(neu.id, '   '), true);
+  assert.equal(S.homeProfiles().find(p => p.id === neu.id).name, 'Nacht');   // leer ändert nichts
+
+  assert.equal(S.deleteProfile(kopie.id), true);
+  assert.equal(S.deleteProfile(neu.id), true);
+  assert.equal(S.homeProfile().id, erst);
+});
+
+test('das letzte Profil bleibt', () => {
+  S._setData({});
+  assert.equal(S.homeProfiles().length, 1);
+  assert.equal(S.deleteProfile(S.homeProfile().id), false);
+  assert.equal(S.homeProfiles().length, 1);
+});
+
+test('mehr als acht Profile gibt es nicht', () => {
+  S._setData({});
+  for (let i = 0; i < 7; i++) assert.ok(S.addProfile(`P${i}`));
+  assert.equal(S.homeProfiles().length, 8);
+  assert.equal(S.addProfile('zu viel'), null);
+  assert.equal(S.duplicateProfile(S.homeProfile().id), null);
+});
+
+test('Profilwechsel nur auf ein vorhandenes Profil', () => {
+  S._setData({});
+  const p = S.addProfile('Abend');
+  assert.equal(S.setHomeProfile('gibtsnicht'), false);
+  assert.equal(S.homeProfile().id, p.id);
+  assert.equal(S.setHomeProfile(p.id), true);
+});
+
+test('ein gelöschtes Habit nimmt sein Widget mit', () => {
+  S._setData({});
+  const h = S.addHabit({ name: 'Laufen', created: MON });
+  S.setWidgets(S.homeProfile().id, [
+    { type: 'singleHabit', size: 'wide', opts: { habitId: h.id } },
+    { type: 'habitHeat', size: 'wide', opts: { habitId: h.id } },
+    { type: 'habitsToday', size: 'wide' },
+  ]);
+  S.deleteHabit(h.id);
+  // Erst beim Laden wird aufgeräumt – geprüft wird also über eine Runde
+  // Export/Import, wie sie auch ein Neustart macht.
+  S.importJSON(S.exportJSON());
+  assert.deepEqual(S.homeProfile().widgets.map(w => w.type), ['habitsToday']);
+});
+
+test('eine gelöschte Liste nimmt ihr Widget mit', () => {
+  S._setData({});
+  const l = S.addList({ name: 'Einkaufen' });
+  S.setWidgets(S.homeProfile().id, [
+    { type: 'singleList', size: 'wide', opts: { listId: l.id } },
+    { type: 'todoStock', size: 'wide' },
+  ]);
+  S.deleteList(l.id);
+  S.importJSON(S.exportJSON());
+  assert.deepEqual(S.homeProfile().widgets.map(w => w.type), ['todoStock']);
+});
+
+test('kaputte Profildaten werden zurechtgebogen', () => {
+  S._setData({
+    homeProfiles: [
+      null,
+      { id: 'a', name: '', widgets: 'nein' },
+      { id: 'a', name: 'doppelt', widgets: [] },     // gleiche Kennung: fliegt raus
+      { name: 'ohne Kennung', widgets: [] },
+    ],
+    settings: { homeProfileId: 'weg' },
+  });
+  const ps = S.homeProfiles();
+  assert.equal(ps.length, 2);
+  assert.equal(ps[0].name, 'Startseite');            // leerer Name bekommt einen
+  assert.deepEqual(ps[0].widgets, []);
+  assert.ok(ps[1].id);
+  // Eine ungültige Auswahl fällt auf das erste Profil zurück.
+  assert.equal(S.homeProfile().id, ps[0].id);
+});
+
+test('alte Sicherungen bekommen ein Profil', () => {
+  // Eine Datei aus der Zeit vor den Widgets darf nicht ohne Startseite landen.
+  const alt = JSON.stringify({ v: 4, settings: {}, habits: [], log: {}, lists: [], todos: [] });
+  S.importJSON(alt);
+  assert.equal(S.homeProfiles().length, 1);
+  assert.ok(S.homeProfile().widgets.length > 0);
+});
+
+test('Profile überleben Export und Import', () => {
+  S._setData({});
+  S.renameProfile(S.homeProfile().id, 'Morgen');
+  S.setWidgets(S.homeProfile().id, [{ type: 'miniMonth', size: 'large' }]);
+  const p2 = S.addProfile('Abend');
+  S.setWidgets(p2.id, [{ type: 'planNext', size: 'small' }]);
+  S.setHomeProfile(p2.id);
+
+  const json = S.exportJSON();
+  S._setData({});
+  S.importJSON(json);
+  assert.deepEqual(S.homeProfiles().map(p => p.name), ['Morgen', 'Abend']);
+  assert.equal(S.homeProfile().name, 'Abend');
+  assert.deepEqual(S.homeProfile().widgets.map(w => [w.type, w.size]), [['planNext', 'small']]);
+});
+
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen\n`);
 process.exit(failed ? 1 : 0);

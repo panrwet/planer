@@ -43,6 +43,7 @@ export function holdScroll() {
  * @param {object} opts
  * @param {HTMLElement} opts.host      Container mit den Geschwistern
  * @param {HTMLElement} opts.scroll    Scroll-Container fürs Mitscrollen am Rand
+ * @param {boolean} [opts.grid]        Raster mit mehreren Spalten statt Liste
  * @param {boolean} [opts.nesting]     Einrücken erlauben
  * @param {number}  [opts.maxDepth]    Tiefste erlaubte Ebene
  * @param {string}  [opts.hint]        Hinweistext während des Ziehens
@@ -115,8 +116,11 @@ function begin(wrap, startX, startY, opts) {
   ghost.firstElementChild?.querySelector('.row')?.classList.add('dragging');
   document.body.append(ghost);
 
-  // … und hinterlässt einen Platzhalter.
+  /* … und hinterlässt einen Platzhalter. Im Raster muss er dieselbe Spalten-
+     breite belegen wie das gezogene Widget, sonst springt die ganze Anordnung
+     bei jeder Bewegung um. */
   const placeholder = el('div', { class: 'drag-placeholder', style: `height:${blockH}px` });
+  if (opts.grid) placeholder.style.gridColumn = getComputedStyle(wrap).gridColumn;
   host.insertBefore(placeholder, items[index + block.length] || null);
 
   if (opts.hint) document.body.append(el('div', { class: 'drag-hint', text: opts.hint }));
@@ -124,6 +128,7 @@ function begin(wrap, startX, startY, opts) {
 
   state = {
     host, ghost, placeholder, block, opts, nesting, maxDepth, ownDepth,
+    grid: !!opts.grid,
     startedAt: Date.now(),
     offsetX: startX - rect.left,
     offsetY: startY - rect.top,
@@ -184,13 +189,19 @@ function tickAutoScroll() {
 /** Platzhalter an die Stelle unter dem Finger setzen; bei Verschachtelung
     zusätzlich die Ebene aus dem horizontalen Versatz bestimmen. */
 function updateTarget() {
-  const { host, placeholder, lastY, lastX, startX, nesting, maxDepth, ownDepth } = state;
+  const { host, placeholder, lastY, lastX, startX, grid, nesting, maxDepth, ownDepth } = state;
   const siblings = [...host.children].filter(n => n !== placeholder);
 
   let before = null;
   for (const n of siblings) {
     const r = n.getBoundingClientRect();
-    if (lastY < r.top + r.height / 2) { before = n; break; }
+    if (grid) {
+      /* Im Raster entscheidet die Leserichtung: Alles in einer Zeile weiter
+         oben kommt zuerst, innerhalb einer Zeile die Mitte in der Breite. Nur
+         die senkrechte Mitte zu vergleichen – wie in der Liste – ignorierte
+         die Spalte und würde nebeneinanderliegende Widgets vertauschen. */
+      if (lastY < r.bottom && lastX < r.left + r.width / 2) { before = n; break; }
+    } else if (lastY < r.top + r.height / 2) { before = n; break; }
   }
   if (before !== placeholder.nextElementSibling) host.insertBefore(placeholder, before);
 

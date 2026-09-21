@@ -4,7 +4,7 @@
 import { uid, todayKey, addDays, addMonths, weekdayOf, weekStart, monthStart, monthDays, clamp } from './util.js';
 
 const KEY = 'planer.v1';
-const SCHEMA = 6;
+const SCHEMA = 7;
 
 /* Papierkorb: Löschen ist umkehrbar, aber nicht ewig. Nach dieser Frist räumt
    die App von selbst auf, damit der Speicher nicht still zuwächst. */
@@ -81,8 +81,14 @@ export const DEFAULTS = {
   planMinutesTodo: 30,  // Standarddauer einer eingeplanten To-do
 };
 
+/* Ein Profil ist Teil des leeren Stands, nicht erst der Migration: Beim
+   allerersten Start wird nicht migriert, und ohne Profil hätte die Startseite
+   nichts anzuzeigen. */
 function emptyData() {
-  return { v: SCHEMA, settings: { ...DEFAULTS }, habits: [], log: {}, lists: [], todos: [], plans: [], trash: [] };
+  const profil = defaultProfile();
+  return { v: SCHEMA, settings: { ...DEFAULTS, homeProfileId: profil.id },
+           habits: [], log: {}, lists: [], todos: [],
+           plans: [], homeProfiles: [profil], trash: [] };
 }
 
 /* ---------- Persistenz ---------- */
@@ -191,6 +197,13 @@ function migrate(d) {
   out.todos = sanitizeTodos(d.todos, out.lists);
   out.log = sanitizeLog(d.log, out.habits);
   out.plans = sanitizePlans(d.plans, out.habits, out.todos);
+  out.homeProfiles = sanitizeProfiles(d.homeProfiles);
+  // Ohne Profil gäbe es keine Startseite – eines muss es immer geben.
+  if (!out.homeProfiles.length) out.homeProfiles = [defaultProfile()];
+  if (!out.homeProfiles.some(p => p.id === out.settings.homeProfileId)) {
+    out.settings.homeProfileId = out.homeProfiles[0].id;
+  }
+  pruneWidgetTargets(out);
   out.trash = sanitizeTrash(d.trash);
 
   out.settings.recentEmoji = Array.isArray(d.settings?.recentEmoji) ? [...d.settings.recentEmoji] : [];
@@ -1281,6 +1294,155 @@ export function plansFor(kind, refId) {
    Liste: bump/unbump beim Habit, toggleTodo beim To-do. Eine eigene
    Abhak-Logik für den Plan wäre genau die Art Abweichung, die sich später
    auseinanderentwickelt. Der Plan braucht dafür keine eigene Funktion. */
+
+/* ==========================================================================
+   Startseiten-Profile
+   Die Startseite ist frei zusammengesetzt: eine Reihe Widgets in einem Profil.
+   Mehrere Profile halten verschiedene Zusammenstellungen bereit („Alltag",
+   „Wochenende"); umgeschaltet wird im Bearbeiten-Modus.
+
+   Ein Widget ist absichtlich dünn beschrieben – Typ, Größe und, wo es eines
+   braucht, ein Ziel. Was ein Typ bedeutet und wie er aussieht, weiß nur die
+   Ansicht (js/widgets.js). Deshalb wird ein unbekannter Typ hier auch nicht
+   verworfen: Eine Sicherung aus einer neueren Fassung würde sonst beim Laden
+   stillschweigend Widgets verlieren.
+   ========================================================================== */
+
+const WIDGET_SIZES = ['small', 'wide', 'large'];
+const PROFILE_MAX = 8;
+
+function sanitizeWidgets(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  return input.flatMap((w) => {
+    if (!w || typeof w !== 'object') return [];
+    const type = str(w.type);
+    if (!type) return [];
+    const id = str(w.id) || uid();
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return [{
+      id,
+      type,
+      size: WIDGET_SIZES.includes(w.size) ? w.size : 'wide',
+      opts: w.opts && typeof w.opts === 'object' ? { ...w.opts } : {},
+    }];
+  });
+}
+
+function sanitizeProfiles(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  const out = input.flatMap((p) => {
+    if (!p || typeof p !== 'object') return [];
+    const id = str(p.id) || uid();
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return [{
+      id,
+      name: str(p.name).trim() || 'Startseite',
+      widgets: sanitizeWidgets(p.widgets),
+    }];
+  });
+  return out.slice(0, PROFILE_MAX);
+}
+
+/** Die Zusammenstellung, mit der eine leere App anfängt. */
+function defaultProfile() {
+  return {
+    id: uid(),
+    name: 'Startseite',
+    widgets: [
+      { id: uid(), type: 'habitsToday', size: 'large', opts: {} },
+      { id: uid(), type: 'planToday', size: 'large', opts: {} },
+      { id: uid(), type: 'todoOverdue', size: 'wide', opts: {} },
+      { id: uid(), type: 'todoStock', size: 'wide', opts: {} },
+      { id: uid(), type: 'habitStreaks', size: 'wide', opts: {} },
+    ],
+  };
+}
+
+export function homeProfiles() {
+  return data.homeProfiles;
+}
+
+/** Das aktive Profil – es gibt immer eines. Fehlt jedes, entsteht hier wieder
+    das vorgegebene: Eine leere Startseite ohne Ausweg wäre schlimmer als eine
+    Anordnung, die der Benutzer nicht selbst gewählt hat. */
+export function homeProfile() {
+  if (!data.homeProfiles.length) data.homeProfiles = [defaultProfile()];
+  return data.homeProfiles.find(p => p.id === data.settings.homeProfileId) || data.homeProfiles[0];
+}
+
+export function setHomeProfile(id) {
+  if (!data.homeProfiles.some(p => p.id === id)) return false;
+  data.settings.homeProfileId = id;
+  save();
+  return true;
+}
+
+export function addProfile(name) {
+  if (data.homeProfiles.length >= PROFILE_MAX) return null;
+  const p = { id: uid(), name: str(name).trim() || 'Neues Profil', widgets: [] };
+  data.homeProfiles.push(p);
+  data.settings.homeProfileId = p.id;
+  save();
+  return p;
+}
+
+export function duplicateProfile(id) {
+  const quelle = data.homeProfiles.find(p => p.id === id);
+  if (!quelle || data.homeProfiles.length >= PROFILE_MAX) return null;
+  const p = {
+    id: uid(),
+    name: `${quelle.name} (Kopie)`,
+    widgets: quelle.widgets.map(w => ({ ...w, id: uid(), opts: { ...w.opts } })),
+  };
+  data.homeProfiles.push(p);
+  data.settings.homeProfileId = p.id;
+  save();
+  return p;
+}
+
+export function renameProfile(id, name) {
+  const p = data.homeProfiles.find(x => x.id === id);
+  if (!p) return false;
+  p.name = str(name).trim() || p.name;
+  save();
+  return true;
+}
+
+/** Löscht ein Profil. Das letzte bleibt stehen – ohne Profil keine Startseite. */
+export function deleteProfile(id) {
+  if (data.homeProfiles.length <= 1) return false;
+  data.homeProfiles = data.homeProfiles.filter(p => p.id !== id);
+  if (data.settings.homeProfileId === id) data.settings.homeProfileId = data.homeProfiles[0].id;
+  save();
+  return true;
+}
+
+/** Übernimmt eine im Bearbeiten-Modus zusammengestellte Anordnung. */
+export function setWidgets(profileId, widgets) {
+  const p = data.homeProfiles.find(x => x.id === profileId);
+  if (!p) return false;
+  p.widgets = sanitizeWidgets(widgets);
+  save();
+  return true;
+}
+
+/** Entfernt Widgets, deren Ziel es nicht mehr gibt – ein gelöschtes Habit
+    hinterlässt sonst ein Widget, das nichts anzeigen kann. */
+function pruneWidgetTargets(d) {
+  const habitIds = new Set(d.habits.map(h => h.id));
+  const listIds = new Set(d.lists.map(l => l.id));
+  for (const p of d.homeProfiles) {
+    p.widgets = p.widgets.filter((w) => {
+      if (w.opts.habitId) return habitIds.has(w.opts.habitId);
+      if (w.opts.listId) return listIds.has(w.opts.listId);
+      return true;
+    });
+  }
+}
 
 /* ==========================================================================
    Papierkorb
